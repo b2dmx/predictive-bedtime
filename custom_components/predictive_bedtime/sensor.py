@@ -1,0 +1,107 @@
+"""Sensors: predicted bedtime and wake, confidence, last sleep."""
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
+
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
+from homeassistant.const import PERCENTAGE
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+
+from .coordinator import BedtimeConfigEntry, BedtimeCoordinator
+from .entity import BedtimeEntity
+
+
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _bedtime_attrs(c: BedtimeCoordinator) -> dict[str, Any]:
+    p = c.data
+    if p is None:
+        return {}
+    return {
+        "schedule_bedtime": _iso(p.schedule_bedtime),
+        "previous_shift_end": _iso(p.prev_end),
+        "next_shift_start": _iso(p.next_start),
+        "wake_by": _iso(p.next_start - c.params.prep) if p.next_start else None,
+        "nights_learned": len(c.episodes),
+        "nights_used": p.nights_used,
+        "held_for_wind_down": c.committed is not None,
+    }
+
+
+def _last_sleep_attrs(c: BedtimeCoordinator) -> dict[str, Any]:
+    if not c.episodes:
+        return {}
+    e = c.episodes[-1]
+    return {
+        "wake": _iso(e.wake),
+        "hours": round((e.wake - e.onset).total_seconds() / 3600, 2),
+    }
+
+
+@dataclass(frozen=True, kw_only=True)
+class BedtimeSensorDescription(SensorEntityDescription):
+    value_fn: Callable[[BedtimeCoordinator], Any]
+    attrs_fn: Callable[[BedtimeCoordinator], dict[str, Any]] | None = None
+
+
+SENSORS = (
+    BedtimeSensorDescription(
+        key="predicted_bedtime",
+        translation_key="predicted_bedtime",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda c: c.data.bedtime if c.data else None,
+        attrs_fn=_bedtime_attrs,
+    ),
+    BedtimeSensorDescription(
+        key="expected_wake",
+        translation_key="expected_wake",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda c: c.data.wake if c.data else None,
+    ),
+    BedtimeSensorDescription(
+        key="confidence",
+        translation_key="confidence",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda c: round(c.data.confidence * 100) if c.data else None,
+    ),
+    BedtimeSensorDescription(
+        key="last_sleep",
+        translation_key="last_sleep",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda c: c.episodes[-1].onset if c.episodes else None,
+        attrs_fn=_last_sleep_attrs,
+    ),
+)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: BedtimeConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+) -> None:
+    async_add_entities(BedtimeSensor(entry.runtime_data, d) for d in SENSORS)
+
+
+class BedtimeSensor(BedtimeEntity, SensorEntity):
+    entity_description: BedtimeSensorDescription
+
+    @property
+    def native_value(self) -> Any:
+        return self.entity_description.value_fn(self.coordinator)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        fn = self.entity_description.attrs_fn
+        return fn(self.coordinator) if fn else None

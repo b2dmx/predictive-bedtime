@@ -1,0 +1,94 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Who is this for?",
+        "description": "Predictive Bedtime learns when someone goes to sleep from their work schedule and their bed, then predicts upcoming bedtimes so the home can get ready ahead of time.\n\nAdd one entry per person.",
+        "data": {
+          "person": "Person"
+        }
+      },
+      "sources": {
+        "title": "Where to learn from",
+        "description": "Pick {name}'s work calendars and the bed sensor for their side of the bed.",
+        "data": {
+          "calendars": "Work calendars",
+          "bed_sensor": "Bed sensor"
+        },
+        "data_description": {
+          "calendars": "Every timed event on these calendars is treated as a shift. All-day events are ignored. Shift changes and swaps are picked up automatically.",
+          "bed_sensor": "On while {name} is in bed. A stretch of 3 hours or more counts as a night's sleep; shorter ones are ignored."
+        }
+      },
+      "habits": {
+        "title": "Starting habits",
+        "description": "These guide predictions until enough nights have been learned. After that, {name}'s actual bedtimes take over. They can be changed later under Configure.",
+        "data": {
+          "free_bedtime": "Usual bedtime with no shift nearby",
+          "target_sleep_hours": "Sleep needed before a shift",
+          "prep_minutes": "Wake-up to shift start",
+          "wind_down_minutes": "Wind-down before bedtime"
+        },
+        "data_description": {
+          "prep_minutes": "Getting ready plus commute.",
+          "wind_down_minutes": "How early the Wind-down sensor turns on, for dimming lights or cooling the bedroom."
+        }
+      }
+    },
+    "error": {
+      "no_calendars": "Pick at least one calendar.",
+      "missing_entity": "That sensor does not exist."
+    },
+    "abort": {
+      "already_configured": "This person is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Bedtime settings",
+        "data": {
+          "calendars": "Work calendars",
+          "bed_sensor": "Bed sensor",
+          "free_bedtime": "Usual bedtime with no shift nearby",
+          "target_sleep_hours": "Sleep needed before a shift",
+          "prep_minutes": "Wake-up to shift start",
+          "wind_down_minutes": "Wind-down before bedtime",
+          "unwind_minutes": "Shortest time from shift end to bed",
+          "settle_minutes": "Time in bed before it counts as a sleep attempt",
+          "wake_gap_minutes": "Time out of bed before it counts as awake",
+          "min_sleep_hours": "Shortest stretch that counts as a night",
+          "learning_window_days": "Learning window"
+        },
+        "data_description": {
+          "target_sleep_hours": "Used until enough nights have been learned; after that, actual behaviour wins.",
+          "learning_window_days": "Nights older than this are discarded. Within the window, recent nights count more."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "predicted_bedtime": {
+        "name": "Predicted bedtime"
+      },
+      "expected_wake": {
+        "name": "Expected wake"
+      },
+      "confidence": {
+        "name": "Bedtime confidence"
+      },
+      "last_sleep": {
+        "name": "Last sleep"
+      }
+    },
+    "binary_sensor": {
+      "expected_asleep": {
+        "name": "Expected asleep"
+      },
+      "wind_down": {
+        "name": "Wind-down"
+      }
+    }
+  }
+}

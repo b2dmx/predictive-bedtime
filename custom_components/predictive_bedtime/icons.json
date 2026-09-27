@@ -1,0 +1,14 @@
+{
+  "entity": {
+    "sensor": {
+      "predicted_bedtime": { "default": "mdi:bed-clock" },
+      "expected_wake": { "default": "mdi:alarm" },
+      "confidence": { "default": "mdi:chart-bell-curve" },
+      "last_sleep": { "default": "mdi:history" }
+    },
+    "binary_sensor": {
+      "expected_asleep": { "default": "mdi:bed-outline", "state": { "on": "mdi:sleep" } },
+      "wind_down": { "default": "mdi:weather-night", "state": { "on": "mdi:weather-night-partly-cloudy" } }
+    }
+  }
+}
