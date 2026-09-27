@@ -8,7 +8,7 @@ It is built for irregular and rotating work schedules. It reads each person's wo
 
 - **Learns from real nights.** Any stretch of 3+ hours in bed (while home) is recorded as a night's sleep. Shorter stretches are ignored.
 - **Thinks in shifts, not weekdays.** Each night is described by hours until the next shift, hours since the last one ended, and time of day. A new rotation, a swapped shift or a schedule that changes every few months is handled by comparing it with similar situations, including ones never seen exactly before.
-- **Starts sensible, then adapts.** Until enough nights are learned, predictions follow the schedule: a full night before early shifts, an unwinding buffer after late ones, and your usual bedtime on free days. As nights accumulate, actual behaviour takes over. **Bedtime confidence** shows how far along it is.
+- **Starts sensible, then adapts.** Until enough nights are learned, predictions follow the schedule: a full night before early shifts, an unwinding buffer after late ones, and your usual bedtime on free days. As nights accumulate, actual behaviour takes over. **Confidence** shows how far along it is.
 - **Bounded memory.** Nights older than the learning window (365 days by default) are discarded. Within the window, recent nights count more.
 - **Nothing polls.** Calendars are re-read once a day, or immediately when one of that person's calendars changes. Sensors switch at the exact moments they are due.
 - **Head start.** On first setup it learns from whatever bed history the recorder still holds.
@@ -17,9 +17,9 @@ It is built for irregular and rotating work schedules. It reads each person's wo
 
 | Entity | What it is |
 |---|---|
-| Predicted bedtime | When this person is expected to go to bed next. Attributes include the schedule-only estimate and the shifts either side. |
-| Expected wake | A full night after bedtime, or earlier if a shift needs them up. |
-| Bedtime confidence | 0–100 %, how much the prediction rests on learned nights rather than the schedule alone. |
+| Next bedtime | When this person is expected to go to bed next. Attributes include the schedule-only estimate and the shifts either side. |
+| Next wake | A full night after bedtime, or earlier if a shift needs them up. |
+| Confidence | 0–100 %, how much the prediction rests on learned nights rather than the schedule alone. |
 | Last sleep | When the last recorded night began, with its wake time and length. |
 | Expected asleep | On during the predicted sleep window, or once they have settled in bed. |
 | Wind-down | On for a set time before the predicted bedtime. |
@@ -29,7 +29,7 @@ It is built for irregular and rotating work schedules. It reads each person's wo
 ```yaml
 triggers:
   - trigger: state
-    entity_id: binary_sensor.sam_bedtime_wind_down
+    entity_id: binary_sensor.sam_predictive_bedtime_wind_down
     to: "on"
 actions:
   - action: light.turn_on

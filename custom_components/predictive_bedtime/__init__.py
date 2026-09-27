@@ -10,6 +10,9 @@ PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: BedtimeConfigEntry) -> bool:
+    # Entries are titled with the first name only.
+    if " " in entry.title.strip():
+        hass.config_entries.async_update_entry(entry, title=entry.title.split()[0])
     coordinator = BedtimeCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     coordinator.async_start_tracking()

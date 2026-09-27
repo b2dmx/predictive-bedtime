@@ -204,6 +204,9 @@ def predict(
         if weight >= MIN_WEIGHT:
             learned.append((*features(e.onset, e.prev_end, e.next_start, tz), weight))
 
+    start = datetime.fromtimestamp(
+        math.ceil(start.timestamp() / STEP.total_seconds()) * STEP.total_seconds(), UTC
+    )
     best_score, best_t, best_mass = -1.0, start, 0.0
     t = start
     while t <= start + LOOKAHEAD:

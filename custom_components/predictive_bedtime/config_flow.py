@@ -116,9 +116,8 @@ class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_habits(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
-            person = self.hass.states.get(self._data[CONF_PERSON])
             return self.async_create_entry(
-                title=person.name if person else self._data[CONF_PERSON],
+                title=self._first_name(),
                 data={CONF_PERSON: self._data[CONF_PERSON]},
                 options={
                     **DEFAULT_OPTIONS,

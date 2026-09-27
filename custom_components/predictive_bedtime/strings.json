@@ -70,13 +70,13 @@
   "entity": {
     "sensor": {
       "predicted_bedtime": {
-        "name": "Predicted bedtime"
+        "name": "Next bedtime"
       },
       "expected_wake": {
-        "name": "Expected wake"
+        "name": "Next wake"
       },
       "confidence": {
-        "name": "Bedtime confidence"
+        "name": "Confidence"
       },
       "last_sleep": {
         "name": "Last sleep"

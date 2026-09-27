@@ -19,6 +19,6 @@ class BedtimeEntity(CoordinatorEntity[BedtimeCoordinator]):
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
-            name=f"{entry.title} Bedtime",
+            name=f"{entry.title} Predictive Bedtime",
             entry_type=DeviceEntryType.SERVICE,
         )
