@@ -40,6 +40,7 @@ from .const import (
     CONF_WIND_DOWN,
     DEFAULT_OPTIONS,
     DOMAIN,
+    TITLE_SUFFIX,
 )
 from .model import DEFAULT_ASLEEP_VALUES
 
@@ -98,7 +99,7 @@ def _check_signals(user_input: dict[str, Any]) -> dict[str, str]:
 
 
 class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
-    VERSION = 2
+    VERSION = 3
 
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
@@ -153,7 +154,7 @@ class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_habits(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
             return self.async_create_entry(
-                title=self._first_name(),
+                title=f"{self._first_name()} {TITLE_SUFFIX}",
                 data={CONF_PERSON: self._data[CONF_PERSON]},
                 options={
                     **DEFAULT_OPTIONS,

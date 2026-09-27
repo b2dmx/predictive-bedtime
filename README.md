@@ -30,7 +30,7 @@ It is built for irregular and rotating work schedules. It reads each person's wo
 ```yaml
 triggers:
   - trigger: state
-    entity_id: binary_sensor.sam_predictive_bedtime_wind_down
+    entity_id: binary_sensor.sam_predictive_sleep_wind_down
     to: "on"
 actions:
   - action: light.turn_on

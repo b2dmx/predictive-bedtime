@@ -2,6 +2,7 @@
 from datetime import timedelta
 
 DOMAIN = "predictive_bedtime"
+TITLE_SUFFIX = "Predictive Sleep"
 
 CONF_PERSON = "person"
 CONF_CALENDARS = "calendars"

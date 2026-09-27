@@ -4,7 +4,13 @@ from __future__ import annotations
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_ASLEEP, CONF_ASLEEP_STATES, CONF_BED_SENSOR, CONF_IN_BED
+from .const import (
+    CONF_ASLEEP,
+    CONF_ASLEEP_STATES,
+    CONF_BED_SENSOR,
+    CONF_IN_BED,
+    TITLE_SUFFIX,
+)
 from .coordinator import BedtimeConfigEntry, BedtimeCoordinator
 from .model import DEFAULT_ASLEEP_VALUES
 
@@ -12,9 +18,6 @@ PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: BedtimeConfigEntry) -> bool:
-    # Entries are titled with the first name only.
-    if " " in entry.title.strip():
-        hass.config_entries.async_update_entry(entry, title=entry.title.split()[0])
     coordinator = BedtimeCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     coordinator.async_start_tracking()
@@ -33,6 +36,12 @@ async def async_migrate_entry(hass: HomeAssistant, entry: BedtimeConfigEntry) ->
         options.setdefault(CONF_ASLEEP, [])
         options.setdefault(CONF_ASLEEP_STATES, list(DEFAULT_ASLEEP_VALUES))
         hass.config_entries.async_update_entry(entry, options=options, version=2)
+    if entry.version == 2:
+        # Titles became "<first name> Predictive Sleep".
+        first = entry.title.split()[0] if entry.title.strip() else entry.title
+        hass.config_entries.async_update_entry(
+            entry, title=f"{first} {TITLE_SUFFIX}", version=3
+        )
     return True
 
 
