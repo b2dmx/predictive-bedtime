@@ -29,6 +29,7 @@ from .const import (
     CONF_CALENDARS,
     CONF_FREE_BEDTIME,
     CONF_IN_BED,
+    CONF_KEYWORDS,
     CONF_MIN_SLEEP,
     CONF_PERSON,
     CONF_PREP,
@@ -62,7 +63,24 @@ def _number(low: float, high: float, step: float, unit: str) -> NumberSelector:
     )
 
 
-SOURCES_SCHEMA = vol.Schema({vol.Required(CONF_CALENDARS): CALENDARS})
+KEYWORDS = SelectSelector(
+    SelectSelectorConfig(options=["work", "shift"], multiple=True, custom_value=True)
+)
+
+CALENDAR_CONTENT = "calendar_content"
+ONLY_SHIFTS = "only_shifts"
+MIXED = "mixed"
+
+SOURCES_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_CALENDARS): CALENDARS,
+        vol.Required(CALENDAR_CONTENT, default=ONLY_SHIFTS): SelectSelector(
+            SelectSelectorConfig(options=[ONLY_SHIFTS, MIXED], translation_key=CALENDAR_CONTENT)
+        ),
+    }
+)
+
+KEYWORDS_SCHEMA = vol.Schema({vol.Required(CONF_KEYWORDS): KEYWORDS})
 
 SIGNALS_SCHEMA = vol.Schema(
     {
@@ -81,7 +99,12 @@ HABITS_SCHEMA = vol.Schema(
     }
 )
 
-OPTIONS_SCHEMA = SOURCES_SCHEMA.extend(SIGNALS_SCHEMA.schema).extend(HABITS_SCHEMA.schema).extend(
+OPTIONS_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_CALENDARS): CALENDARS,
+        vol.Optional(CONF_KEYWORDS, default=[]): KEYWORDS,
+    }
+).extend(SIGNALS_SCHEMA.schema).extend(HABITS_SCHEMA.schema).extend(
     {
         vol.Required(CONF_UNWIND): _number(0, 240, 5, "min"),
         vol.Required(CONF_SETTLE): _number(5, 90, 5, "min"),
@@ -99,7 +122,7 @@ def _check_signals(user_input: dict[str, Any]) -> dict[str, str]:
 
 
 class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
-    VERSION = 3
+    VERSION = 4
 
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
@@ -121,13 +144,35 @@ class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
             if not user_input[CONF_CALENDARS]:
                 errors[CONF_CALENDARS] = "no_calendars"
             else:
-                self._data.update(user_input)
+                self._data[CONF_CALENDARS] = user_input[CONF_CALENDARS]
+                if user_input[CALENDAR_CONTENT] == MIXED:
+                    return await self.async_step_keywords()
+                self._data[CONF_KEYWORDS] = []
                 return await self.async_step_signals()
 
         return self.async_show_form(
             step_id="sources",
             data_schema=self.add_suggested_values_to_schema(
                 SOURCES_SCHEMA, user_input or {CONF_CALENDARS: self._suggest_calendars()}
+            ),
+            errors=errors,
+            description_placeholders={"name": self._first_name()},
+        )
+
+    async def async_step_keywords(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            words = [w.strip() for w in user_input[CONF_KEYWORDS] if w.strip()]
+            if not words:
+                errors[CONF_KEYWORDS] = "no_keywords"
+            else:
+                self._data[CONF_KEYWORDS] = words
+                return await self.async_step_signals()
+
+        return self.async_show_form(
+            step_id="keywords",
+            data_schema=self.add_suggested_values_to_schema(
+                KEYWORDS_SCHEMA, user_input or {CONF_KEYWORDS: ["work"]}
             ),
             errors=errors,
             description_placeholders={"name": self._first_name()},
@@ -159,6 +204,7 @@ class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
                 options={
                     **DEFAULT_OPTIONS,
                     CONF_CALENDARS: self._data[CONF_CALENDARS],
+                    CONF_KEYWORDS: self._data.get(CONF_KEYWORDS, []),
                     CONF_IN_BED: self._data.get(CONF_IN_BED, []),
                     CONF_ASLEEP: self._data.get(CONF_ASLEEP, []),
                     CONF_ASLEEP_STATES: self._data[CONF_ASLEEP_STATES],

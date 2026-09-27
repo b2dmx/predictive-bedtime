@@ -33,6 +33,7 @@ from .const import (
     CONF_CALENDARS,
     CONF_FREE_BEDTIME,
     CONF_IN_BED,
+    CONF_KEYWORDS,
     CONF_MIN_SLEEP,
     CONF_PERSON,
     CONF_PREP,
@@ -56,6 +57,7 @@ from .model import (
     Shift,
     SleepDetector,
     combine,
+    is_shift,
     make_episode,
     predict,
 )
@@ -146,6 +148,10 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
     @property
     def calendars(self) -> list[str]:
         return list(self._conf(CONF_CALENDARS))
+
+    @property
+    def keywords(self) -> list[str]:
+        return list(self._conf(CONF_KEYWORDS) or [])
 
     @property
     def params(self) -> Params:
@@ -309,6 +315,8 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
             for event in calendar.get("events", []):
                 # All-day entries (holidays, notes) are not shifts.
                 if "T" not in str(event.get("start")):
+                    continue
+                if not is_shift(event.get("summary"), self.keywords):
                     continue
                 s = dt_util.parse_datetime(event["start"])
                 e = dt_util.parse_datetime(event["end"])

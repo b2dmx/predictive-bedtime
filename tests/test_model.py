@@ -148,6 +148,17 @@ def test_combine_custom_states_are_case_insensitive():
     assert model.combine(["core"], [], True, ["Core"])[1] is True
 
 
+def test_shift_keywords_match_whole_words_only():
+    assert model.is_shift("Work (Sam)", ["work"])
+    assert model.is_shift("Bailey work", ["Work"])
+    assert model.is_shift("Night shift", ["work", "shift"])
+    assert not model.is_shift("Workout", ["work"])
+    assert not model.is_shift("Dentist", ["work"])
+    # No keywords: every event is a shift.
+    assert model.is_shift("Dentist", [])
+    assert model.is_shift(None, [" "])
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

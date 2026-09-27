@@ -36,12 +36,12 @@ async def async_migrate_entry(hass: HomeAssistant, entry: BedtimeConfigEntry) ->
         options.setdefault(CONF_ASLEEP, [])
         options.setdefault(CONF_ASLEEP_STATES, list(DEFAULT_ASLEEP_VALUES))
         hass.config_entries.async_update_entry(entry, options=options, version=2)
-    if entry.version == 2:
-        # Titles became "<first name> Predictive Sleep".
-        first = entry.title.split()[0] if entry.title.strip() else entry.title
-        hass.config_entries.async_update_entry(
-            entry, title=f"{first} {TITLE_SUFFIX}", version=3
-        )
+    if entry.version in (2, 3):
+        # Titles became "<first name> Predictive Bedtime". A title the user chose is kept.
+        title = entry.title.strip()
+        if entry.version == 2 or title.endswith(" Predictive Sleep"):
+            title = f"{title.split()[0]} {TITLE_SUFFIX}" if title else title
+        hass.config_entries.async_update_entry(entry, title=title, version=4)
     return True
 
 

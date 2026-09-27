@@ -17,6 +17,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta, tzinfo
 import math
+import re
 from typing import Any
 
 # Anything further away than this counts as "no shift nearby".
@@ -153,6 +154,16 @@ def _hours(delta: timedelta) -> float:
 def _clock_gap(a: float, b: float) -> float:
     d = abs(a - b) % 24
     return min(d, 24 - d)
+
+
+def is_shift(summary: str | None, keywords: Iterable[str]) -> bool:
+    """Whole-word, case-insensitive: "work" matches "Bailey work" but not "Workout"."""
+    words = [k.strip() for k in keywords if k and k.strip()]
+    if not words:
+        return True
+    return any(
+        re.search(rf"(?<!\w){re.escape(w)}(?!\w)", summary or "", re.IGNORECASE) for w in words
+    )
 
 
 def neighbours(t: datetime, shifts: Iterable[Shift]) -> tuple[Shift | None, Shift | None]:

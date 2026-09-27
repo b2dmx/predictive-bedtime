@@ -30,7 +30,7 @@ It is built for irregular and rotating work schedules. It reads each person's wo
 ```yaml
 triggers:
   - trigger: state
-    entity_id: binary_sensor.sam_predictive_sleep_wind_down
+    entity_id: binary_sensor.sam_predictive_bedtime_wind_down
     to: "on"
 actions:
   - action: light.turn_on
@@ -43,7 +43,7 @@ actions:
 
 ## Requirements
 
-- One or more **calendars** holding the person's shifts. Every timed event counts as a shift; all-day events are ignored.
+- One or more **calendars** holding the person's shifts. A dedicated work calendar is easiest: every timed event counts as a shift. A shared or personal calendar works too: during setup, choose "Work shifts and other events" and give the words shift events use (e.g. `work`). Matching is whole-word and ignores case, so `work` matches "Work (Sam)" but not "Workout". All-day events are always ignored.
 - At least one **sleep signal** per person, and a **person** entity:
 
 | Signal | Examples | Treated as |
@@ -67,7 +67,7 @@ Copy `custom_components/predictive_bedtime` into your `config/custom_components`
 
 ## Settings
 
-Setup asks for the person, their calendars, their sleep signals and a few starting habits. Everything can be changed later under **Configure**:
+Setup asks for the person, their calendars (and, for shared calendars, which words mark a shift), their sleep signals and a few starting habits. Everything can be changed later under **Configure**:
 
 | Setting | Default |
 |---|---|

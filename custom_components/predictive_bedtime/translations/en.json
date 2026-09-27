@@ -10,12 +10,14 @@
       },
       "sources": {
         "title": "Work schedule",
-        "description": "Pick {name}'s work calendars.",
+        "description": "Pick the calendars that hold {name}'s shifts.",
         "data": {
-          "calendars": "Work calendars"
+          "calendars": "Work calendars",
+          "calendar_content": "What's on these calendars?"
         },
         "data_description": {
-          "calendars": "Every timed event on these calendars is treated as a shift. All-day events are ignored. Shift changes and swaps are picked up automatically."
+          "calendars": "Timed events are treated as shifts. All-day events are ignored. Shift changes and swaps are picked up automatically.",
+          "calendar_content": "Choose \"other events too\" for a shared or personal calendar; the next step asks how to recognise shifts."
         }
       },
       "habits": {
@@ -45,11 +47,22 @@
           "asleep_signals": "Measured sleep, such as Sleep as Android, Withings, Fitbit, or Apple Health sleep data (e.g. via Health Auto Export). Trusted straight away. Not Sleep Focus or bedtime schedules: those follow preset times, not actual sleep.",
           "asleep_states": "Only matters for trackers that report text states. Any of these states counts as asleep."
         }
+      },
+      "keywords": {
+        "title": "Recognising shifts",
+        "description": "Only events whose title contains one of these words will count as {name}'s shifts.",
+        "data": {
+          "shift_keywords": "Shift words"
+        },
+        "data_description": {
+          "shift_keywords": "Whole words, ignoring case: \"work\" matches \"Work (Sam)\" and \"Sam work\" but not \"Workout\". Type your own and press Enter to add it."
+        }
       }
     },
     "error": {
       "no_calendars": "Pick at least one calendar.",
-      "no_signals": "Pick at least one in-bed signal or sleep tracker."
+      "no_signals": "Pick at least one in-bed signal or sleep tracker.",
+      "no_keywords": "Add at least one word."
     },
     "abort": {
       "already_configured": "This person is already set up."
@@ -61,6 +74,7 @@
         "title": "Bedtime settings",
         "data": {
           "calendars": "Work calendars",
+          "shift_keywords": "Only events containing",
           "in_bed_signals": "In-bed signals",
           "asleep_signals": "Sleep trackers",
           "asleep_states": "States that mean asleep",
@@ -77,7 +91,8 @@
         "data_description": {
           "target_sleep_hours": "Used until enough nights have been learned; after that, actual behaviour wins.",
           "learning_window_days": "Nights older than this are discarded. Within the window, recent nights count more.",
-          "asleep_states": "Only matters for trackers that report text states."
+          "asleep_states": "Only matters for trackers that report text states.",
+          "shift_keywords": "Leave empty to treat every timed event as a shift."
         }
       }
     },
@@ -106,6 +121,14 @@
       },
       "wind_down": {
         "name": "Wind-down"
+      }
+    }
+  },
+  "selector": {
+    "calendar_content": {
+      "options": {
+        "only_shifts": "Only work shifts",
+        "mixed": "Work shifts and other events"
       }
     }
   }

@@ -2,10 +2,12 @@
 from datetime import timedelta
 
 DOMAIN = "predictive_bedtime"
-TITLE_SUFFIX = "Predictive Sleep"
+TITLE_SUFFIX = "Predictive Bedtime"
 
 CONF_PERSON = "person"
 CONF_CALENDARS = "calendars"
+# Only events whose title contains one of these words count as shifts; empty = all.
+CONF_KEYWORDS = "shift_keywords"
 # Replaced by the two signal lists in config version 2; kept for migration.
 CONF_BED_SENSOR = "bed_sensor"
 CONF_IN_BED = "in_bed_signals"
