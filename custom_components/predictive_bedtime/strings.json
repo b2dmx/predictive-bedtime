@@ -9,20 +9,18 @@
         }
       },
       "sources": {
-        "title": "Where to learn from",
-        "description": "Pick {name}'s work calendars and the bed sensor for their side of the bed.",
+        "title": "Work schedule",
+        "description": "Pick {name}'s work calendars.",
         "data": {
-          "calendars": "Work calendars",
-          "bed_sensor": "Bed sensor"
+          "calendars": "Work calendars"
         },
         "data_description": {
-          "calendars": "Every timed event on these calendars is treated as a shift. All-day events are ignored. Shift changes and swaps are picked up automatically.",
-          "bed_sensor": "On while {name} is in bed. A stretch of 3 hours or more counts as a night's sleep; shorter ones are ignored."
+          "calendars": "Every timed event on these calendars is treated as a shift. All-day events are ignored. Shift changes and swaps are picked up automatically."
         }
       },
       "habits": {
         "title": "Starting habits",
-        "description": "These guide predictions until enough nights have been learned. After that, {name}'s actual bedtimes take over. They can be changed later under Configure.",
+        "description": "These guide predictions until enough nights have been learned. After that, {name}'s actual bedtimes take over. Everything can be changed later under Configure.",
         "data": {
           "free_bedtime": "Usual bedtime with no shift nearby",
           "target_sleep_hours": "Sleep needed before a shift",
@@ -33,11 +31,25 @@
           "prep_minutes": "Getting ready plus commute.",
           "wind_down_minutes": "How early the Wind-down sensor turns on, for dimming lights or cooling the bedroom."
         }
+      },
+      "signals": {
+        "title": "How to tell when {name} sleeps",
+        "description": "Pick at least one signal. Use as many as you have: when one is missing (a watch not worn, a flaky sensor), the others fill in.",
+        "data": {
+          "in_bed_signals": "In-bed signals",
+          "asleep_signals": "Sleep trackers",
+          "asleep_states": "States that mean asleep"
+        },
+        "data_description": {
+          "in_bed_signals": "On while {name} is in bed: a bed pressure sensor for their side, an mmWave presence sensor aimed at the bed, or similar. 20 minutes settled counts as going to sleep; 3 hours or more counts as a night.",
+          "asleep_signals": "Measured sleep, such as Sleep as Android, Withings, Fitbit, or Apple Health sleep data (e.g. via Health Auto Export). Trusted straight away. Not Sleep Focus or bedtime schedules: those follow preset times, not actual sleep.",
+          "asleep_states": "Only matters for trackers that report text states. Any of these states counts as asleep."
+        }
       }
     },
     "error": {
       "no_calendars": "Pick at least one calendar.",
-      "missing_entity": "That sensor does not exist."
+      "no_signals": "Pick at least one in-bed signal or sleep tracker."
     },
     "abort": {
       "already_configured": "This person is already set up."
@@ -49,7 +61,9 @@
         "title": "Bedtime settings",
         "data": {
           "calendars": "Work calendars",
-          "bed_sensor": "Bed sensor",
+          "in_bed_signals": "In-bed signals",
+          "asleep_signals": "Sleep trackers",
+          "asleep_states": "States that mean asleep",
           "free_bedtime": "Usual bedtime with no shift nearby",
           "target_sleep_hours": "Sleep needed before a shift",
           "prep_minutes": "Wake-up to shift start",
@@ -62,9 +76,13 @@
         },
         "data_description": {
           "target_sleep_hours": "Used until enough nights have been learned; after that, actual behaviour wins.",
-          "learning_window_days": "Nights older than this are discarded. Within the window, recent nights count more."
+          "learning_window_days": "Nights older than this are discarded. Within the window, recent nights count more.",
+          "asleep_states": "Only matters for trackers that report text states."
         }
       }
+    },
+    "error": {
+      "no_signals": "Pick at least one in-bed signal or sleep tracker."
     }
   },
   "entity": {

@@ -34,6 +34,28 @@ LOOKAHEAD = timedelta(hours=24)
 MIN_WEIGHT = 0.02
 MAX_SLEEP = timedelta(hours=16)
 
+# Where a recorded night came from.
+SOURCE_TRACKER = "tracker"
+SOURCE_IN_BED = "in_bed"
+
+# States that mean an in-bed signal (bed pressure, mmWave, occupancy) sees someone.
+IN_BED_VALUES = frozenset({"on", "occupied", "detected", "present", "home", "true"})
+# States that mean a sleep tracker reports sleep. Editable per person.
+DEFAULT_ASLEEP_VALUES = (
+    "on",
+    "asleep",
+    "sleeping",
+    "sleep",
+    "light",
+    "deep",
+    "rem",
+    "light_sleep",
+    "deep_sleep",
+    "rem_sleep",
+    "sleep_tracking_started",
+)
+_UNUSABLE = frozenset({"unavailable", "unknown", ""})
+
 
 @dataclass(frozen=True)
 class Shift:
@@ -68,6 +90,7 @@ class Episode:
     wake: datetime
     prev_end: datetime | None
     next_start: datetime | None
+    source: str = SOURCE_IN_BED
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -75,6 +98,7 @@ class Episode:
             "wake": _iso(self.wake),
             "prev_end": _iso(self.prev_end),
             "next_start": _iso(self.next_start),
+            "source": self.source,
         }
 
     @classmethod
@@ -84,6 +108,7 @@ class Episode:
             wake=_parse(data["wake"]),
             prev_end=_parse(data.get("prev_end")),
             next_start=_parse(data.get("next_start")),
+            source=data.get("source", SOURCE_IN_BED),
         )
 
 
@@ -155,9 +180,11 @@ def features(
     return until_next, since_prev, local.hour + local.minute / 60
 
 
-def make_episode(onset: datetime, wake: datetime, shifts: Iterable[Shift]) -> Episode:
+def make_episode(
+    onset: datetime, wake: datetime, shifts: Iterable[Shift], source: str = SOURCE_IN_BED
+) -> Episode:
     prev, nxt = neighbours(onset, shifts)
-    return Episode(onset, wake, prev.end if prev else None, nxt.start if nxt else None)
+    return Episode(onset, wake, prev.end if prev else None, nxt.start if nxt else None, source)
 
 
 def schedule_bedtime(start: datetime, shifts: Sequence[Shift], p: Params, tz: tzinfo) -> datetime:
@@ -245,45 +272,65 @@ def predict(
     )
 
 
-class SleepDetector:
-    """Turns a noisy bed-occupancy signal into sleep episodes.
+def combine(
+    asleep: Iterable[str | None],
+    in_bed: Iterable[str | None],
+    home: bool,
+    asleep_values: Iterable[str],
+) -> tuple[bool, bool, bool]:
+    """Fold every sleep signal into one reading.
 
-    Asleep once you have been in bed (and home) continuously for `settle`; the onset is
-    when that stretch began. Awake once the bed has been empty for `wake_gap`; the wake
-    time is when it emptied. Short sleeps (naps) and implausibly long ones are dropped.
+    Returns (on, sure, known):
+    * on: a tracker reports sleep, or an in-bed signal sees someone while they are home
+    * sure: a tracker reports sleep, so no settling wait is needed
+    * known: at least one signal is reporting at all
+    """
+    values = {v.lower() for v in asleep_values}
+    trackers = [s.lower() for s in asleep if s is not None and s.lower() not in _UNUSABLE]
+    beds = [s.lower() for s in in_bed if s is not None and s.lower() not in _UNUSABLE]
+    if not trackers and not beds:
+        return False, False, False
+    sure = any(s in values for s in trackers)
+    in_bed_on = home and any(s in IN_BED_VALUES for s in beds)
+    return sure or in_bed_on, sure, True
+
+
+class SleepDetector:
+    """Turns noisy sleep signals into nights.
+
+    Fed the combined reading from `combine`. A night starts when the reading has been on
+    for `settle` (in-bed signals) or immediately (a tracker reporting sleep); its onset is
+    when that stretch began. It ends once the reading has been off for `wake_gap`; the
+    wake time is when it went off. Short sleeps (naps) and implausibly long ones are dropped.
     """
 
     def __init__(self) -> None:
         self.asleep = False
         self.onset: datetime | None = None
+        self.tracked = False
 
     def step(
-        self,
-        now: datetime,
-        bed_on: bool,
-        bed_since: datetime,
-        home: bool,
-        home_since: datetime,
-        p: Params,
-    ) -> tuple[datetime, datetime] | None:
+        self, now: datetime, on: bool, since: datetime, sure: bool, p: Params
+    ) -> tuple[datetime, datetime, str] | None:
         if not self.asleep:
-            if bed_on and home:
-                since = max(bed_since, home_since)
-                if now - since >= p.settle:
-                    self.asleep, self.onset = True, since
+            if on and (sure or now - since >= p.settle):
+                self.asleep, self.onset, self.tracked = True, since, sure
             return None
 
-        if bed_on or now - bed_since < p.wake_gap:
+        self.tracked = self.tracked or sure
+        if on or now - since < p.wake_gap:
             return None
-        onset, wake = self.onset, bed_since
-        self.asleep, self.onset = False, None
+        onset, wake = self.onset, since
+        source = SOURCE_TRACKER if self.tracked else SOURCE_IN_BED
+        self.asleep, self.onset, self.tracked = False, None, False
         if onset is None or not p.min_sleep <= wake - onset <= MAX_SLEEP:
             return None
-        return onset, wake
+        return onset, wake, source
 
     def as_dict(self) -> dict[str, Any]:
-        return {"asleep": self.asleep, "onset": _iso(self.onset)}
+        return {"asleep": self.asleep, "onset": _iso(self.onset), "tracked": self.tracked}
 
     def restore(self, data: dict[str, Any]) -> None:
         self.asleep = bool(data.get("asleep"))
         self.onset = _parse(data.get("onset"))
+        self.tracked = bool(data.get("tracked"))

@@ -46,6 +46,7 @@ def _last_sleep_attrs(c: BedtimeCoordinator) -> dict[str, Any]:
     return {
         "wake": _iso(e.wake),
         "hours": round((e.wake - e.onset).total_seconds() / 3600, 2),
+        "source": e.source,
     }
 
 

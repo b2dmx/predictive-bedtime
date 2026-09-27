@@ -4,7 +4,9 @@ from __future__ import annotations
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
+from .const import CONF_ASLEEP, CONF_ASLEEP_STATES, CONF_BED_SENSOR, CONF_IN_BED
 from .coordinator import BedtimeConfigEntry, BedtimeCoordinator
+from .model import DEFAULT_ASLEEP_VALUES
 
 PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
@@ -19,6 +21,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: BedtimeConfigEntry) -> b
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload))
+    return True
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: BedtimeConfigEntry) -> bool:
+    if entry.version == 1:
+        # One bed sensor became lists of in-bed signals and sleep trackers.
+        options = dict(entry.options)
+        bed = options.pop(CONF_BED_SENSOR, None)
+        options[CONF_IN_BED] = [bed] if bed else []
+        options.setdefault(CONF_ASLEEP, [])
+        options.setdefault(CONF_ASLEEP_STATES, list(DEFAULT_ASLEEP_VALUES))
+        hass.config_entries.async_update_entry(entry, options=options, version=2)
     return True
 
 

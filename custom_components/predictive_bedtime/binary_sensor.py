@@ -28,7 +28,7 @@ class ExpectedAsleepSensor(BedtimeEntity, BinarySensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, bool]:
-        return {"in_bed": self.coordinator.detector.asleep}
+        return {"detected": self.coordinator.detector.asleep}
 
 
 class WindDownSensor(BedtimeEntity, BinarySensorEntity):

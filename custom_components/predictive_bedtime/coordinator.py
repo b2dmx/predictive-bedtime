@@ -1,6 +1,6 @@
-"""Coordinator: watches the bed, reads the calendars, remembers recent nights, runs the model.
+"""Coordinator: watches the sleep signals, reads the calendars, remembers recent nights, runs the model.
 
-Nothing polls. Work happens when something changes (bed, presence, a calendar entity), at
+Nothing polls. Work happens when something changes (a sleep signal, presence, a calendar entity), at
 the moments a prediction says something is due (wind-down, bedtime, wake), and at most a
 day after the calendars were last read.
 """
@@ -13,13 +13,7 @@ from typing import Any
 
 from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (
-    ATTR_ENTITY_ID,
-    STATE_HOME,
-    STATE_ON,
-    STATE_UNAVAILABLE,
-    STATE_UNKNOWN,
-)
+from homeassistant.const import ATTR_ENTITY_ID, STATE_HOME
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, State, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import (
@@ -33,9 +27,11 @@ from homeassistant.util import dt as dt_util
 from .const import (
     BACKFILL_DAYS,
     CALENDAR_MAX_AGE,
-    CONF_BED_SENSOR,
+    CONF_ASLEEP,
+    CONF_ASLEEP_STATES,
     CONF_CALENDARS,
     CONF_FREE_BEDTIME,
+    CONF_IN_BED,
     CONF_MIN_SLEEP,
     CONF_PERSON,
     CONF_PREP,
@@ -51,7 +47,17 @@ from .const import (
     SHIFT_RETENTION,
     STORAGE_VERSION,
 )
-from .model import Episode, Params, Prediction, Shift, SleepDetector, make_episode, predict
+from .model import (
+    DEFAULT_ASLEEP_VALUES,
+    Episode,
+    Params,
+    Prediction,
+    Shift,
+    SleepDetector,
+    combine,
+    make_episode,
+    predict,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -72,10 +78,6 @@ def params_from_options(options: dict[str, Any]) -> Params:
         min_sleep=timedelta(hours=float(o[CONF_MIN_SLEEP])),
         half_life_days=float(o[CONF_RETENTION]) * HALF_LIFE_FRACTION,
     )
-
-
-def _usable(state: State | None) -> bool:
-    return state is not None and state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
 
 
 class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
@@ -101,6 +103,9 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         self._unsub_detector: Callable[[], None] | None = None
         self._unsub_next: Callable[[], None] | None = None
         self._needs_backfill = False
+        # Combined sleep reading and when it last flipped.
+        self._on: bool | None = None
+        self._since: datetime | None = None
 
     # --- configuration -------------------------------------------------
 
@@ -112,8 +117,29 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         return self.config_entry.data[CONF_PERSON]
 
     @property
-    def bed_sensor(self) -> str:
-        return self._conf(CONF_BED_SENSOR)
+    def in_bed_signals(self) -> list[str]:
+        return list(self._conf(CONF_IN_BED) or [])
+
+    @property
+    def asleep_signals(self) -> list[str]:
+        return list(self._conf(CONF_ASLEEP) or [])
+
+    @property
+    def asleep_values(self) -> list[str]:
+        return list(self._conf(CONF_ASLEEP_STATES) or DEFAULT_ASLEEP_VALUES)
+
+    @property
+    def signals(self) -> list[str]:
+        return [*self.in_bed_signals, *self.asleep_signals]
+
+    def _reading(self, state_of: Callable[[str], str | None]) -> tuple[bool, bool, bool]:
+        person = state_of(self.person)
+        return combine(
+            (state_of(e) for e in self.asleep_signals),
+            (state_of(e) for e in self.in_bed_signals),
+            person is None or person == STATE_HOME,
+            self.asleep_values,
+        )
 
     @property
     def calendars(self) -> list[str]:
@@ -151,7 +177,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         entry = self.config_entry
         entry.async_on_unload(
             async_track_state_change_event(
-                self.hass, [self.bed_sensor, self.person], self._async_on_bed_or_presence
+                self.hass, [*self.signals, self.person], self._async_on_signal
             )
         )
         entry.async_on_unload(
@@ -197,7 +223,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
     # --- sleep detection -----------------------------------------------
 
     @callback
-    def _async_on_bed_or_presence(self, event: Event[EventStateChangedData]) -> None:
+    def _async_on_signal(self, event: Event[EventStateChangedData]) -> None:
         self._async_evaluate()
 
     @callback
@@ -205,18 +231,25 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         if self._unsub_detector:
             self._unsub_detector()
             self._unsub_detector = None
-        bed = self.hass.states.get(self.bed_sensor)
-        # A sensor dropping off WiFi says nothing about whether anyone is in bed.
-        if not _usable(bed):
+
+        def state_of(entity_id: str) -> str | None:
+            state = self.hass.states.get(entity_id)
+            return state.state if state else None
+
+        on, sure, known = self._reading(state_of)
+        # Signals dropping off WiFi say nothing about whether anyone is asleep.
+        if not known:
             return
-        person = self.hass.states.get(self.person)
-        home = person is None or person.state == STATE_HOME
-        home_since = person.last_changed if person else bed.last_changed
-        bed_on = bed.state == STATE_ON
+        now = dt_util.utcnow()
+        if self._on is None:
+            self._on, self._since = on, self._initial_since(on)
+        elif on != self._on:
+            self._on, self._since = on, now
+        since = self._since or now
         p = self.params
 
         was_asleep = self.detector.asleep
-        finished = self.detector.step(dt_util.utcnow(), bed_on, bed.last_changed, home, home_since, p)
+        finished = self.detector.step(now, on, since, sure, p)
         if finished:
             self._record(*finished)
         if finished or was_asleep != self.detector.asleep:
@@ -226,17 +259,28 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
 
         # Check again the moment a pending stretch would cross its threshold.
         due: datetime | None = None
-        if not self.detector.asleep and bed_on and home:
-            due = max(bed.last_changed, home_since) + p.settle
-        elif self.detector.asleep and not bed_on:
-            due = bed.last_changed + p.wake_gap
+        if not self.detector.asleep and on and not sure:
+            due = since + p.settle
+        elif self.detector.asleep and not on:
+            due = since + p.wake_gap
         if due:
             self._unsub_detector = async_track_point_in_utc_time(
-                self.hass, self._async_evaluate, max(due, dt_util.utcnow()) + timedelta(seconds=1)
+                self.hass, self._async_evaluate, max(due, now) + timedelta(seconds=1)
             )
 
-    def _record(self, onset: datetime, wake: datetime) -> None:
-        self.episodes = [*self.episodes, make_episode(onset, wake, self.shifts)]
+    def _initial_since(self, on: bool) -> datetime:
+        """Best guess at when the current reading began, from the signals' own history."""
+        changed = [
+            state.last_changed
+            for entity_id in self.signals
+            if (state := self.hass.states.get(entity_id)) is not None
+        ]
+        if not changed:
+            return dt_util.utcnow()
+        return min(changed) if on else max(changed)
+
+    def _record(self, onset: datetime, wake: datetime, source: str) -> None:
+        self.episodes = [*self.episodes, make_episode(onset, wake, self.shifts, source)]
         self._forget_old_nights()
         self.last_wake = wake
         self.committed = None
@@ -392,18 +436,18 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         )
         p = self.params
         detector = SleepDetector()
-        bed_on: bool | None = None
-        bed_since = start
-        home, home_since = True, start
+        current: dict[str, str] = {}
+        on: bool | None = None
+        since = start
+        sure = False
         for when, entity_id, state in events:
-            if bed_on is not None and (done := detector.step(when, bed_on, bed_since, home, home_since, p)):
+            if on is not None and (done := detector.step(when, on, since, sure, p)):
                 self._record(*done)
-            if entity_id == self.bed_sensor:
-                if state in (STATE_ON, "off") and (state == STATE_ON) != bed_on:
-                    bed_on, bed_since = state == STATE_ON, when
-            elif (state == STATE_HOME) != home:
-                home, home_since = state == STATE_HOME, when
-        if bed_on is not None and (done := detector.step(now, bed_on, bed_since, home, home_since, p)):
+            current[entity_id] = state
+            new_on, sure, known = self._reading(current.get)
+            if known and new_on != on:
+                on, since = new_on, when
+        if on is not None and (done := detector.step(now, on, since, sure, p)):
             self._record(*done)
         self.episodes.sort(key=lambda e: e.onset)
         # Live detection has been running meanwhile; only adopt the replayed state if idle.
@@ -430,7 +474,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         from homeassistant.components.recorder import history  # noqa: PLC0415
 
         out: dict[str, list[State]] = {}
-        for entity_id in (self.bed_sensor, self.person):
+        for entity_id in (*self.signals, self.person):
             out[entity_id] = history.state_changes_during_period(
                 self.hass,
                 start,

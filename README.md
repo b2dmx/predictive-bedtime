@@ -2,11 +2,12 @@
 
 A Home Assistant integration that **learns when each person in the home goes to sleep** and predicts the next bedtime, so the house can get ready for sleep when sleep is actually expected, instead of on a fixed schedule.
 
-It is built for irregular and rotating work schedules. It reads each person's work calendars, watches their side of the bed, and learns how their sleep relates to their shifts. When shifts change, predictions change with them.
+It is built for irregular and rotating work schedules. It reads each person's work calendars, watches whatever sleep signals they have (a bed sensor, an mmWave sensor, a sleep tracker), and learns how their sleep relates to their shifts. When shifts change, predictions change with them.
 
 ## How it works
 
-- **Learns from real nights.** Any stretch of 3+ hours in bed (while home) is recorded as a night's sleep. Shorter stretches are ignored.
+- **Learns from real nights.** Any stretch of 3+ hours in bed (while home) or asleep according to a tracker is recorded as a night's sleep. Shorter stretches are ignored.
+- **Uses every signal you have.** Combine in-bed signals and sleep trackers; when one drops out, the others fill the gap. Each night records whether a tracker confirmed it.
 - **Thinks in shifts, not weekdays.** Each night is described by hours until the next shift, hours since the last one ended, and time of day. A new rotation, a swapped shift or a schedule that changes every few months is handled by comparing it with similar situations, including ones never seen exactly before.
 - **Starts sensible, then adapts.** Until enough nights are learned, predictions follow the schedule: a full night before early shifts, an unwinding buffer after late ones, and your usual bedtime on free days. As nights accumulate, actual behaviour takes over. **Confidence** shows how far along it is.
 - **Bounded memory.** Nights older than the learning window (365 days by default) are discarded. Within the window, recent nights count more.
@@ -43,7 +44,14 @@ actions:
 ## Requirements
 
 - One or more **calendars** holding the person's shifts. Every timed event counts as a shift; all-day events are ignored.
-- A **bed occupancy sensor** per person (per side of the bed), and a **person** entity.
+- At least one **sleep signal** per person, and a **person** entity:
+
+| Signal | Examples | Treated as |
+|---|---|---|
+| In-bed | Bed pressure sensor for their side, mmWave presence aimed at the bed, occupancy sensor | In bed once settled for 20 minutes, while home |
+| Sleep tracker | Sleep as Android, Withings, Fitbit, Apple Health sleep data (e.g. via Health Auto Export) | Asleep immediately; text states like `asleep` or `deep` are configurable |
+
+Avoid "sleep focus" or bedtime-schedule entities: they follow preset times rather than actual sleep, which is what this integration replaces.
 
 ## Installation
 
@@ -59,7 +67,7 @@ Copy `custom_components/predictive_bedtime` into your `config/custom_components`
 
 ## Settings
 
-Setup asks for the person, their calendars, their bed sensor and a few starting habits. Everything can be changed later under **Configure**:
+Setup asks for the person, their calendars, their sleep signals and a few starting habits. Everything can be changed later under **Configure**:
 
 | Setting | Default |
 |---|---|

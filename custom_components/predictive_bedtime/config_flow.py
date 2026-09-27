@@ -1,6 +1,7 @@
 """Config and options flows.
 
-Setup is three short steps: who, which data sources, and a few starting habits. The habits
+Setup is four short steps: who, their work calendars, how to tell when they sleep, and a
+few starting habits. The habits
 are only a starting point; once nights have been learned, actual behaviour takes over.
 """
 from __future__ import annotations
@@ -17,13 +18,17 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
     TimeSelector,
 )
 
 from .const import (
-    CONF_BED_SENSOR,
+    CONF_ASLEEP,
+    CONF_ASLEEP_STATES,
     CONF_CALENDARS,
     CONF_FREE_BEDTIME,
+    CONF_IN_BED,
     CONF_MIN_SLEEP,
     CONF_PERSON,
     CONF_PREP,
@@ -36,10 +41,16 @@ from .const import (
     DEFAULT_OPTIONS,
     DOMAIN,
 )
+from .model import DEFAULT_ASLEEP_VALUES
 
 PERSON = EntitySelector(EntitySelectorConfig(domain="person"))
 CALENDARS = EntitySelector(EntitySelectorConfig(domain="calendar", multiple=True))
-BED = EntitySelector(EntitySelectorConfig(domain="binary_sensor"))
+SIGNALS = EntitySelector(
+    EntitySelectorConfig(domain=["binary_sensor", "input_boolean", "sensor"], multiple=True)
+)
+ASLEEP_STATES = SelectSelector(
+    SelectSelectorConfig(options=list(DEFAULT_ASLEEP_VALUES), multiple=True, custom_value=True)
+)
 
 
 def _number(low: float, high: float, step: float, unit: str) -> NumberSelector:
@@ -50,10 +61,13 @@ def _number(low: float, high: float, step: float, unit: str) -> NumberSelector:
     )
 
 
-SOURCES_SCHEMA = vol.Schema(
+SOURCES_SCHEMA = vol.Schema({vol.Required(CONF_CALENDARS): CALENDARS})
+
+SIGNALS_SCHEMA = vol.Schema(
     {
-        vol.Required(CONF_CALENDARS): CALENDARS,
-        vol.Required(CONF_BED_SENSOR): BED,
+        vol.Optional(CONF_IN_BED, default=[]): SIGNALS,
+        vol.Optional(CONF_ASLEEP, default=[]): SIGNALS,
+        vol.Required(CONF_ASLEEP_STATES): ASLEEP_STATES,
     }
 )
 
@@ -66,7 +80,7 @@ HABITS_SCHEMA = vol.Schema(
     }
 )
 
-OPTIONS_SCHEMA = SOURCES_SCHEMA.extend(HABITS_SCHEMA.schema).extend(
+OPTIONS_SCHEMA = SOURCES_SCHEMA.extend(SIGNALS_SCHEMA.schema).extend(HABITS_SCHEMA.schema).extend(
     {
         vol.Required(CONF_UNWIND): _number(0, 240, 5, "min"),
         vol.Required(CONF_SETTLE): _number(5, 90, 5, "min"),
@@ -77,8 +91,14 @@ OPTIONS_SCHEMA = SOURCES_SCHEMA.extend(HABITS_SCHEMA.schema).extend(
 )
 
 
+def _check_signals(user_input: dict[str, Any]) -> dict[str, str]:
+    if not user_input.get(CONF_IN_BED) and not user_input.get(CONF_ASLEEP):
+        return {"base": "no_signals"}
+    return {}
+
+
 class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
-    VERSION = 1
+    VERSION = 2
 
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
@@ -99,16 +119,32 @@ class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             if not user_input[CONF_CALENDARS]:
                 errors[CONF_CALENDARS] = "no_calendars"
-            elif self.hass.states.get(user_input[CONF_BED_SENSOR]) is None:
-                errors[CONF_BED_SENSOR] = "missing_entity"
             else:
                 self._data.update(user_input)
-                return await self.async_step_habits()
+                return await self.async_step_signals()
 
         return self.async_show_form(
             step_id="sources",
             data_schema=self.add_suggested_values_to_schema(
                 SOURCES_SCHEMA, user_input or {CONF_CALENDARS: self._suggest_calendars()}
+            ),
+            errors=errors,
+            description_placeholders={"name": self._first_name()},
+        )
+
+    async def async_step_signals(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            errors = _check_signals(user_input)
+            if not errors:
+                self._data.update(user_input)
+                return await self.async_step_habits()
+
+        return self.async_show_form(
+            step_id="signals",
+            data_schema=self.add_suggested_values_to_schema(
+                SIGNALS_SCHEMA,
+                user_input or {CONF_ASLEEP_STATES: list(DEFAULT_ASLEEP_VALUES)},
             ),
             errors=errors,
             description_placeholders={"name": self._first_name()},
@@ -122,7 +158,9 @@ class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
                 options={
                     **DEFAULT_OPTIONS,
                     CONF_CALENDARS: self._data[CONF_CALENDARS],
-                    CONF_BED_SENSOR: self._data[CONF_BED_SENSOR],
+                    CONF_IN_BED: self._data.get(CONF_IN_BED, []),
+                    CONF_ASLEEP: self._data.get(CONF_ASLEEP, []),
+                    CONF_ASLEEP_STATES: self._data[CONF_ASLEEP_STATES],
                     **user_input,
                 },
             )
@@ -154,11 +192,21 @@ class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
 
 class PredictiveBedtimeOptionsFlow(OptionsFlow):
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
+            errors = _check_signals(user_input)
+            if not errors:
+                return self.async_create_entry(data=user_input)
         return self.async_show_form(
             step_id="init",
             data_schema=self.add_suggested_values_to_schema(
-                OPTIONS_SCHEMA, {**DEFAULT_OPTIONS, **self.config_entry.options}
+                OPTIONS_SCHEMA,
+                user_input
+                or {
+                    **DEFAULT_OPTIONS,
+                    CONF_ASLEEP_STATES: list(DEFAULT_ASLEEP_VALUES),
+                    **self.config_entry.options,
+                },
             ),
+            errors=errors,
         )

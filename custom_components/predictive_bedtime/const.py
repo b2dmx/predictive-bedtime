@@ -5,7 +5,11 @@ DOMAIN = "predictive_bedtime"
 
 CONF_PERSON = "person"
 CONF_CALENDARS = "calendars"
+# Replaced by the two signal lists in config version 2; kept for migration.
 CONF_BED_SENSOR = "bed_sensor"
+CONF_IN_BED = "in_bed_signals"
+CONF_ASLEEP = "asleep_signals"
+CONF_ASLEEP_STATES = "asleep_states"
 
 CONF_TARGET_SLEEP = "target_sleep_hours"
 CONF_PREP = "prep_minutes"

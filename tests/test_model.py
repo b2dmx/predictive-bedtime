@@ -99,27 +99,53 @@ def test_interpolates_unseen_shift_time():
 
 def test_detector_debounces_and_drops_naps():
     det = model.SleepDetector()
-    home_since = at(1, 0)
     # In bed 22:00, briefly out 22:05 (not settled), back 22:10.
-    assert det.step(at(26, 22, 5), True, at(26, 22), True, home_since, P) is None
+    assert det.step(at(26, 22, 5), True, at(26, 22), False, P) is None
     assert not det.asleep
-    assert det.step(at(26, 22, 40), True, at(26, 22, 10), True, home_since, P) is None
+    assert det.step(at(26, 22, 40), True, at(26, 22, 10), False, P) is None
     assert det.asleep and local(det.onset) == "26 22:10"
     # Up for 10 minutes at 02:00: still asleep.
-    assert det.step(at(27, 2, 10), False, at(27, 2), True, home_since, P) is None
+    assert det.step(at(27, 2, 10), False, at(27, 2), False, P) is None
     assert det.asleep
     # Out of bed at 06:00 for good.
-    done = det.step(at(27, 6, 45), False, at(27, 6), True, home_since, P)
+    done = det.step(at(27, 6, 45), False, at(27, 6), False, P)
     assert done and local(done[0]) == "26 22:10" and local(done[1]) == "27 06:00"
+    assert done[2] == model.SOURCE_IN_BED
     # A 1-hour nap is not a night.
-    det.step(at(27, 16, 30), True, at(27, 16), True, home_since, P)
-    assert det.step(at(27, 17, 45), False, at(27, 17), True, home_since, P) is None
+    det.step(at(27, 16, 30), True, at(27, 16), False, P)
+    assert det.step(at(27, 17, 45), False, at(27, 17), False, P) is None
 
 
-def test_detector_needs_person_home():
+def test_tracker_counts_immediately_and_marks_the_night():
     det = model.SleepDetector()
-    det.step(at(26, 23), True, at(26, 22), False, at(26, 20), P)
-    assert not det.asleep
+    det.step(at(26, 23, 1), True, at(26, 23), True, P)
+    assert det.asleep and local(det.onset) == "26 23:00"
+    done = det.step(at(27, 7, 31), False, at(27, 7), False, P)
+    assert done[2] == model.SOURCE_TRACKER
+
+
+VALUES = model.DEFAULT_ASLEEP_VALUES
+
+
+def test_combine_needs_someone_home_for_in_bed_signals():
+    assert model.combine([], ["on"], True, VALUES) == (True, False, True)
+    assert model.combine([], ["on"], False, VALUES) == (False, False, True)
+    # A tracker still counts away from home (travel is still sleep).
+    assert model.combine(["asleep"], [], False, VALUES) == (True, True, True)
+
+
+def test_combine_fills_gaps_between_signals():
+    # Flaky bed sensor unavailable, tracker still reporting deep sleep.
+    assert model.combine(["deep"], ["unavailable"], True, VALUES) == (True, True, True)
+    # mmWave sees someone, tracker says awake: in bed, not sure.
+    assert model.combine(["awake"], ["detected"], True, VALUES) == (True, False, True)
+    # Nothing reporting at all is unknown, not awake.
+    assert model.combine(["unavailable"], [None], True, VALUES)[2] is False
+
+
+def test_combine_custom_states_are_case_insensitive():
+    assert model.combine(["Sleeping"], [], True, ["sleeping"])[1] is True
+    assert model.combine(["core"], [], True, ["Core"])[1] is True
 
 
 if __name__ == "__main__":
