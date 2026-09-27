@@ -43,3 +43,5 @@ SHIFT_RETENTION = timedelta(days=21)
 BACKFILL_DAYS = 30
 # Calendars are re-read at least this often, and immediately whenever a calendar entity changes.
 CALENDAR_MAX_AGE = timedelta(hours=24)
+# After a failed calendar read.
+CALENDAR_RETRY = timedelta(minutes=10)

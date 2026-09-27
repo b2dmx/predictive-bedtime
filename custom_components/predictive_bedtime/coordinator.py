@@ -27,6 +27,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     BACKFILL_DAYS,
     CALENDAR_MAX_AGE,
+    CALENDAR_RETRY,
     CONF_ASLEEP,
     CONF_ASLEEP_STATES,
     CONF_CALENDARS,
@@ -103,6 +104,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         self._unsub_detector: Callable[[], None] | None = None
         self._unsub_next: Callable[[], None] | None = None
         self._needs_backfill = False
+        self._retry_fetch_at: datetime | None = None
         # Combined sleep reading and when it last flipped.
         self._on: bool | None = None
         self._since: datetime | None = None
@@ -328,7 +330,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
             self._calendars_changed
             or self._last_fetch is None
             or now - self._last_fetch >= CALENDAR_MAX_AGE
-        ):
+        ) and self._calendars_ready():
             try:
                 await self._async_fetch_shifts(now - timedelta(days=2), now + timedelta(days=3))
                 self._last_fetch = now
@@ -338,10 +340,19 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
                 if not self.shifts:
                     raise UpdateFailed(f"Could not read calendars: {err}") from err
                 _LOGGER.warning("Could not read calendars, using cached shifts: %s", err)
+                self._retry_fetch_at = now + CALENDAR_RETRY
 
         prediction = await self._async_predict(now)
         self._schedule_next(prediction, now)
         return prediction
+
+    def _calendars_ready(self) -> bool:
+        """At startup calendars can load after this integration.
+
+        Their entities appearing fires a state change, which triggers a read, so there is
+        nothing to do until then.
+        """
+        return all(self.hass.states.get(c) is not None for c in self.calendars)
 
     async def _async_predict(self, now: datetime) -> Prediction:
         if self.committed and now < self.committed.wake:
@@ -378,6 +389,9 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
             prediction.wake,
             (self._last_fetch or now) + CALENDAR_MAX_AGE,
         ]
+        if self._retry_fetch_at:
+            moments.append(self._retry_fetch_at)
+            self._retry_fetch_at = None
         due = min(m for m in moments if m > now) if any(m > now for m in moments) else now + CALENDAR_MAX_AGE
         self._unsub_next = async_track_point_in_utc_time(
             self.hass, self._async_on_due, due + timedelta(seconds=1)
