@@ -100,6 +100,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         self._calendars_changed = True
         self._unsub_detector: Callable[[], None] | None = None
         self._unsub_next: Callable[[], None] | None = None
+        self._needs_backfill = False
 
     # --- configuration -------------------------------------------------
 
@@ -131,8 +132,8 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
     async def _async_setup(self) -> None:
         stored = await self._store.async_load()
         if stored is None:
-            await self._async_backfill()
-            self._save()
+            # Reading history can take minutes on slow hardware; do it after setup.
+            self._needs_backfill = True
             return
         self.episodes = [Episode.from_dict(e) for e in stored.get("episodes", [])]
         self._forget_old_nights()
@@ -158,6 +159,16 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         )
         entry.async_on_unload(self._cancel_timers)
         self._async_evaluate()
+        if self._needs_backfill:
+            self._needs_backfill = False
+            entry.async_create_background_task(
+                self.hass, self._async_run_backfill(), f"{DOMAIN} backfill {entry.title}"
+            )
+
+    async def _async_run_backfill(self) -> None:
+        await self._async_backfill()
+        self._save()
+        await self.async_request_refresh()
 
     @callback
     def _cancel_timers(self) -> None:
@@ -394,7 +405,10 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
                 home, home_since = state == STATE_HOME, when
         if bed_on is not None and (done := detector.step(now, bed_on, bed_since, home, home_since, p)):
             self._record(*done)
-        self.detector = detector
+        self.episodes.sort(key=lambda e: e.onset)
+        # Live detection has been running meanwhile; only adopt the replayed state if idle.
+        if not self.detector.asleep:
+            self.detector = detector
         self._announce_backfill()
 
     def _announce_backfill(self) -> None:
