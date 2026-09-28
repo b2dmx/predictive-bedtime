@@ -149,16 +149,19 @@
         "name": "Prediction error"
       },
       "last_sleep": {
-        "name": "Previous sleep"
+        "name": "Last bedtime"
       },
       "last_sleep_duration": {
-        "name": "Previous sleep duration"
+        "name": "Last sleep duration"
       },
       "first_bedtime": {
         "name": "Earliest bedtime"
       },
       "last_bedtime": {
         "name": "Latest bedtime"
+      },
+      "last_wake": {
+        "name": "Last wake-up"
       }
     },
     "binary_sensor": {
@@ -182,7 +185,7 @@
     },
     "button": {
       "forget_last_night": {
-        "name": "Forget previous sleep"
+        "name": "Forget last sleep"
       }
     }
   },
@@ -196,7 +199,7 @@
   },
   "services": {
     "forget_last_night": {
-      "name": "Forget previous sleep",
+      "name": "Forget last sleep",
       "description": "Removes the most recently recorded sleep from learning, for one that was not typical.",
       "fields": {
         "config_entry_id": {

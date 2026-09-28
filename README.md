@@ -12,7 +12,7 @@ It is built for irregular and rotating work schedules. It reads each person's wo
 - **Starts sensible, then adapts.** Until enough nights are learned, predictions follow the schedule: a full night before early shifts, an unwinding buffer after late ones, and your usual bedtime on free days. As nights accumulate, actual behaviour takes over. **Prediction confidence** shows how far along it is.
 - **Learns how long you sleep, too.** Next wake comes from how long similar nights lasted, capped by the next shift.
 - **Optional sleep debt.** When enabled, how much was slept in the previous 48 hours is also compared, since short nights tend to lead to earlier bedtimes.
-- **You stay in control.** A Learning switch and "pause learning when" conditions (a home-mode selector, a guest or vacation toggle) keep untypical nights out. A Forget previous sleep button, an action, and an optional phone notification with a Forget button handle the rest.
+- **You stay in control.** A Learning switch and "pause learning when" conditions (a home-mode selector, a guest or vacation toggle) keep untypical nights out. A Forget last sleep button, an action, and an optional phone notification with a Forget button handle the rest.
 - **Bounded memory.** Nights older than the learning window (365 days by default) are discarded. Within the window, recent nights count more.
 - **Nothing polls.** Calendars are re-read once a day, or immediately when one of that person's calendars changes. Sensors switch at the exact moments they are due.
 - **Head start.** On first setup it learns from whatever bed history the recorder still holds.
@@ -24,11 +24,12 @@ It is built for irregular and rotating work schedules. It reads each person's wo
 | Next bedtime | When this person is expected to go to bed next. Attributes include the schedule-only estimate and the shifts either side. |
 | Next wake-up | When they are expected up: how long similar sleeps lasted, or earlier if a shift needs them up. |
 | Prediction confidence | 0–100 %, how much the prediction rests on learned nights rather than the schedule alone. Diagnostic. |
-| Previous sleep | When the most recent recorded sleep began, with when it ended, its length and its source. |
-| Previous sleep duration | Its length in hours, kept as long-term statistics for graphs. |
+| Last bedtime | When the most recent recorded sleep began, and whether a tracker confirmed it. |
+| Last wake-up | When it ended. |
+| Last sleep duration | Its length in hours, kept as long-term statistics for graphs. |
 | Prediction error | Average minutes between predicted and actual bedtime over the last 14 sleeps. Lower is better. Diagnostic. |
 | Learning (switch) | Turn off to stop learning by hand. Attributes show whether learning is active right now and what paused it. |
-| Forget previous sleep (button) | Removes the most recent sleep from learning. |
+| Forget last sleep (button) | Removes the most recent sleep from learning. |
 | Expected asleep | On during the predicted sleep window, or once they have settled in bed. |
 | Wind-down | On for a set time before the predicted bedtime. |
 
@@ -71,7 +72,7 @@ Ready-made automations. Each asks you to pick Predictive Sleep sensors, so they 
 
 ## Dashboard card
 
-The [`dashboards`](dashboards) folder has the same card three ways: [built-in cards only](dashboards/default.yaml), [Mushroom](dashboards/mushroom.yaml) and [Bubble Card](dashboards/bubble.yaml). Add a Manual card, paste one in, and replace `sam` with the person's first name as it appears in their entity IDs.
+The [`dashboards`](dashboards) folder has the same card three ways: [built-in cards only](dashboards/default.yaml), [Mushroom](dashboards/mushroom.yaml) and [Bubble Card](dashboards/bubble.yaml). Add a Manual card, paste one in, and replace `sam` with the person's first name as it appears in their entity IDs. The cards show clock times; Home Assistant's own entity pages always show times relative ("in 4 hours").
 
 ## Requirements
 

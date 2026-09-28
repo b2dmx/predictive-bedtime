@@ -1,4 +1,4 @@
-"""Sensors: next bedtime and wake-up, prediction quality, previous sleep."""
+"""Sensors: next and last bedtime and wake-up, sleep length, prediction quality."""
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -52,7 +52,7 @@ def _last_sleep_attrs(c: BedtimeCoordinator) -> dict[str, Any]:
     if not c.episodes:
         return {}
     e = c.episodes[-1]
-    return {"ended": _iso(e.wake), "hours": _hours(c), "source": e.source}
+    return {"source": e.source}
 
 
 def _accuracy_value(c: BedtimeCoordinator) -> float | None:
@@ -115,6 +115,12 @@ SENSORS = (
         device_class=SensorDeviceClass.TIMESTAMP,
         value_fn=lambda c: c.episodes[-1].onset if c.episodes else None,
         attrs_fn=_last_sleep_attrs,
+    ),
+    BedtimeSensorDescription(
+        key="last_wake",
+        translation_key="last_wake",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda c: c.episodes[-1].wake if c.episodes else None,
     ),
     BedtimeSensorDescription(
         key="last_sleep_duration",

@@ -11,7 +11,7 @@
         "default": "mdi:chart-bell-curve"
       },
       "last_sleep": {
-        "default": "mdi:history"
+        "default": "mdi:bed-clock"
       },
       "accuracy": {
         "default": "mdi:target"
@@ -24,6 +24,9 @@
       },
       "last_sleep_duration": {
         "default": "mdi:timer-sand"
+      },
+      "last_wake": {
+        "default": "mdi:weather-sunset-up"
       }
     },
     "binary_sensor": {
