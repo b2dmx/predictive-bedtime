@@ -1,8 +1,13 @@
-"""Constants for Predictive Bedtime."""
+"""Constants for Predictive Sleep."""
 from datetime import timedelta
 
 DOMAIN = "predictive_bedtime"
-TITLE_SUFFIX = "Predictive Bedtime"
+TITLE_SUFFIX = "Predictive Sleep"
+# Entry kinds: one entry per person, plus an optional household entry.
+KIND_HOUSEHOLD = "household"
+HOUSEHOLD_TITLE = "Household Predictive Sleep"
+# Sent whenever any person's prediction or sleep state changes.
+SIGNAL_UPDATED = "predictive_bedtime_updated"
 
 CONF_PERSON = "person"
 CONF_CALENDARS = "calendars"

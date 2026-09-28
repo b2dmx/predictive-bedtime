@@ -10,7 +10,7 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
     BooleanSelector,
@@ -47,6 +47,8 @@ from .const import (
     DEFAULT_OPTIONS,
     DEFAULT_PAUSE_STATES,
     DOMAIN,
+    HOUSEHOLD_TITLE,
+    KIND_HOUSEHOLD,
     TITLE_SUFFIX,
 )
 from .model import DEFAULT_ASLEEP_VALUES
@@ -156,12 +158,24 @@ def _check_signals(user_input: dict[str, Any]) -> dict[str, str]:
 
 
 class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
-    VERSION = 4
+    VERSION = 5
 
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="user", menu_options=["person", KIND_HOUSEHOLD])
+
+    async def async_step_household(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        await self.async_set_unique_id(KIND_HOUSEHOLD)
+        self._abort_if_unique_id_configured(error="household_exists")
+        if user_input is not None:
+            return self.async_create_entry(title=HOUSEHOLD_TITLE, data={"kind": KIND_HOUSEHOLD})
+        return self.async_show_form(step_id=KIND_HOUSEHOLD, data_schema=vol.Schema({}))
+
+    async def async_step_person(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
             await self.async_set_unique_id(user_input[CONF_PERSON])
             self._abort_if_unique_id_configured()
@@ -169,7 +183,7 @@ class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
             return await self.async_step_sources()
 
         return self.async_show_form(
-            step_id="user", data_schema=vol.Schema({vol.Required(CONF_PERSON): PERSON})
+            step_id="person", data_schema=vol.Schema({vol.Required(CONF_PERSON): PERSON})
         )
 
     async def async_step_sources(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -283,6 +297,11 @@ class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
             for state in self.hass.states.async_all("calendar")
             if name in (state.name or "").lower()
         ]
+
+    @classmethod
+    @callback
+    def async_supports_options_flow(cls, config_entry: ConfigEntry) -> bool:
+        return config_entry.data.get("kind") != KIND_HOUSEHOLD
 
     @staticmethod
     @callback

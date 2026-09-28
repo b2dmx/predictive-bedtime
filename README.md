@@ -1,4 +1,4 @@
-# Predictive Bedtime
+# Predictive Sleep
 
 A Home Assistant integration that **learns when each person in the home goes to sleep** and predicts the next bedtime, so the house can get ready for sleep when sleep is actually expected, instead of on a fixed schedule.
 
@@ -31,12 +31,22 @@ It is built for irregular and rotating work schedules. It reads each person's wo
 | Expected asleep | On during the predicted sleep window, or once they have settled in bed. |
 | Wind-down | On for a set time before the predicted bedtime. |
 
+### Household sensors (optional)
+
+Add the integration once more and choose **Add household sensors** for whole-home views across everyone set up. Handy for locks, heating and common-area lights, especially without a home-mode system of your own.
+
+| Entity | What it is |
+|---|---|
+| Everyone asleep | On when everyone who is home is expected asleep. Attributes list who is asleep and who is awake. |
+| Anyone winding down | On when anyone who is home is winding down. |
+| First bedtime / Last bedtime | Earliest and latest predicted bedtimes, with who they belong to. |
+
 ### Example
 
 ```yaml
 triggers:
   - trigger: state
-    entity_id: binary_sensor.sam_predictive_bedtime_wind_down
+    entity_id: binary_sensor.sam_predictive_sleep_wind_down
     to: "on"
 actions:
   - action: light.turn_on
@@ -46,6 +56,21 @@ actions:
       brightness_pct: 30
       color_temp_kelvin: 2200
 ```
+
+## Blueprints
+
+Ready-made automations. Each asks you to pick Predictive Sleep sensors, so they work for any person or the household.
+
+| Blueprint | What it does | |
+|---|---|---|
+| Wind-down lighting | Dims and warms lights at wind-down, optionally off once expected asleep | [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fb2dmx%2Fpredictive-sleep%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fpredictive_sleep%2Fwind_down_lights.yaml) |
+| Pre-cool or pre-heat the bedroom | Sets the thermostat a chosen lead time before the predicted bedtime | [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fb2dmx%2Fpredictive-sleep%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fpredictive_sleep%2Fprecondition_bedroom.yaml) |
+| Bedtime and wake-up routine | Your own actions at expected sleep and wake: lock up, blinds, do-not-disturb, alarm | [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fb2dmx%2Fpredictive-sleep%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fpredictive_sleep%2Fsleep_routine.yaml) |
+| Bedtime reminder before early shifts | A phone reminder before bedtime, only when the next shift is soon after it | [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fb2dmx%2Fpredictive-sleep%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fpredictive_sleep%2Fbedtime_reminder.yaml) |
+
+## Dashboard card
+
+The [`dashboards`](dashboards) folder has the same card three ways: [built-in cards only](dashboards/default.yaml), [Mushroom](dashboards/mushroom.yaml) and [Bubble Card](dashboards/bubble.yaml). Add a Manual card, paste one in, and replace `sam` with the person's first name as it appears in their entity IDs.
 
 ## Requirements
 
@@ -63,9 +88,9 @@ Avoid "sleep focus" or bedtime-schedule entities: they follow preset times rathe
 
 ### HACS
 
-1. HACS → ⋮ → **Custom repositories** → add `https://github.com/b2dmx/predictive-bedtime`, category **Integration**.
-2. Download **Predictive Bedtime**, then restart Home Assistant.
-3. **Settings → Devices & services → Add integration → Predictive Bedtime**, once per person.
+1. HACS → ⋮ → **Custom repositories** → add `https://github.com/b2dmx/predictive-sleep`, category **Integration**.
+2. Download **Predictive Sleep**, then restart Home Assistant.
+3. **Settings → Devices & services → Add integration → Predictive Sleep**, once per person.
 
 ### Manual
 

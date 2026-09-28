@@ -1,13 +1,6 @@
 {
   "config": {
     "step": {
-      "user": {
-        "title": "Who is this for?",
-        "description": "Predictive Bedtime learns when someone goes to sleep from their work schedule and their bed, then predicts upcoming bedtimes so the home can get ready ahead of time.\n\nAdd one entry per person.",
-        "data": {
-          "person": "Person"
-        }
-      },
       "sources": {
         "title": "Work schedule",
         "description": "Pick the calendars that hold {name}'s shifts.",
@@ -73,6 +66,25 @@
           "notify_service": "A phone from the Home Assistant app. After each recorded night it gets a note with a Forget button, for nights that were not normal.",
           "use_sleep_debt": "Also compare how much {name} slept in the previous 48 hours, since short nights tend to lead to earlier bedtimes. Best turned on once a few weeks of nights have been learned."
         }
+      },
+      "person": {
+        "title": "Who is this for?",
+        "description": "Predictive Sleep learns when someone goes to sleep from their work schedule and their bed, then predicts upcoming bedtimes so the home can get ready ahead of time.\n\nAdd one entry per person.",
+        "data": {
+          "person": "Person"
+        }
+      },
+      "user": {
+        "title": "Predictive Sleep",
+        "description": "Predictive Sleep learns when each person goes to sleep from their work schedule and sleep signals, then predicts upcoming bedtimes so the home can get ready ahead of time.",
+        "menu_options": {
+          "person": "Add a person",
+          "household": "Add household sensors"
+        }
+      },
+      "household": {
+        "title": "Household sensors",
+        "description": "Adds whole-home sensors across everyone set up: whether everyone home is expected asleep, whether anyone is winding down, and the first and last predicted bedtimes. Useful for locks, heating and common-area lights, especially without a home-mode system of your own."
       }
     },
     "error": {
@@ -81,7 +93,8 @@
       "no_keywords": "Add at least one word."
     },
     "abort": {
-      "already_configured": "This person is already set up."
+      "already_configured": "This person is already set up.",
+      "household_exists": "Household sensors are already set up."
     }
   },
   "options": {
@@ -137,6 +150,12 @@
       },
       "accuracy": {
         "name": "Accuracy"
+      },
+      "first_bedtime": {
+        "name": "First bedtime"
+      },
+      "last_bedtime": {
+        "name": "Last bedtime"
       }
     },
     "binary_sensor": {
@@ -145,6 +164,12 @@
       },
       "wind_down": {
         "name": "Wind-down"
+      },
+      "household_expected_asleep": {
+        "name": "Everyone asleep"
+      },
+      "anyone_winding_down": {
+        "name": "Anyone winding down"
       }
     },
     "switch": {
@@ -173,14 +198,14 @@
       "fields": {
         "config_entry_id": {
           "name": "Person",
-          "description": "The Predictive Bedtime entry to forget a night for."
+          "description": "The Predictive Sleep entry to forget a night for."
         }
       }
     }
   },
   "exceptions": {
     "entry_not_loaded": {
-      "message": "That Predictive Bedtime entry is not loaded."
+      "message": "That Predictive Sleep entry is not loaded."
     }
   }
 }

@@ -16,6 +16,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID, STATE_HOME
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, State, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
     async_track_point_in_utc_time,
     async_track_state_change_event,
@@ -51,6 +52,7 @@ from .const import (
     DEFAULT_PAUSE_STATES,
     DOMAIN,
     HALF_LIFE_FRACTION,
+    SIGNAL_UPDATED,
     NOTIFY_ACTION_PREFIX,
     SHIFT_RETENTION,
     STORAGE_VERSION,
@@ -129,6 +131,21 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
     @property
     def person(self) -> str:
         return self.config_entry.data[CONF_PERSON]
+
+    @property
+    def first_name(self) -> str:
+        return self.config_entry.title.split()[0] if self.config_entry.title else ""
+
+    @property
+    def is_home(self) -> bool:
+        state = self.hass.states.get(self.person)
+        return state is None or state.state == STATE_HOME
+
+    @callback
+    def async_update_listeners(self) -> None:
+        super().async_update_listeners()
+        # Household sensors follow every person.
+        async_dispatcher_send(self.hass, SIGNAL_UPDATED)
 
     @property
     def in_bed_signals(self) -> list[str]:
@@ -609,7 +626,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
             self.hass,
             f"{found}\n\nUntil more nights are learned, predictions follow the work schedule "
             "and the starting habits. Watch **Confidence** rise as it learns.",
-            title="Predictive Bedtime is set up",
+            title="Predictive Sleep is set up",
             notification_id=f"{DOMAIN}_{self.config_entry.entry_id}_setup",
         )
 

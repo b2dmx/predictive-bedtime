@@ -7,6 +7,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import BedtimeConfigEntry
 from .entity import BedtimeEntity
+from .household import binary_sensors, is_household
 
 EXPECTED_ASLEEP = BinarySensorEntityDescription(key="expected_asleep", translation_key="expected_asleep")
 WIND_DOWN = BinarySensorEntityDescription(key="wind_down", translation_key="wind_down")
@@ -17,6 +18,9 @@ async def async_setup_entry(
     entry: BedtimeConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
+    if is_household(entry):
+        async_add_entities(binary_sensors(entry))
+        return
     coordinator = entry.runtime_data
     async_add_entities([ExpectedAsleepSensor(coordinator, EXPECTED_ASLEEP), WindDownSensor(coordinator, WIND_DOWN)])
 

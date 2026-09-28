@@ -15,6 +15,12 @@
       },
       "accuracy": {
         "default": "mdi:target"
+      },
+      "first_bedtime": {
+        "default": "mdi:bed-clock"
+      },
+      "last_bedtime": {
+        "default": "mdi:bed-clock"
       }
     },
     "binary_sensor": {
@@ -29,6 +35,15 @@
         "state": {
           "on": "mdi:weather-night-partly-cloudy"
         }
+      },
+      "household_expected_asleep": {
+        "default": "mdi:home-outline",
+        "state": {
+          "on": "mdi:home-moon"
+        }
+      },
+      "anyone_winding_down": {
+        "default": "mdi:weather-night"
       }
     },
     "switch": {

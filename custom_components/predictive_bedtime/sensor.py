@@ -18,6 +18,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import BedtimeConfigEntry, BedtimeCoordinator
 from .entity import BedtimeEntity
+from .household import sensors, is_household
 from .model import accuracy
 
 
@@ -118,6 +119,9 @@ async def async_setup_entry(
     entry: BedtimeConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
+    if is_household(entry):
+        async_add_entities(sensors(entry))
+        return
     async_add_entities(BedtimeSensor(entry.runtime_data, d) for d in SENSORS)
 
 
