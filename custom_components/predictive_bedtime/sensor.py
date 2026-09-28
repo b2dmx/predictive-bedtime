@@ -12,12 +12,13 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE
+from homeassistant.const import PERCENTAGE, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import BedtimeConfigEntry, BedtimeCoordinator
 from .entity import BedtimeEntity
+from .model import accuracy
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -50,6 +51,23 @@ def _last_sleep_attrs(c: BedtimeCoordinator) -> dict[str, Any]:
     }
 
 
+def _accuracy_value(c: BedtimeCoordinator) -> float | None:
+    result = accuracy(c.episodes)
+    return round(result[0]) if result else None
+
+
+def _accuracy_attrs(c: BedtimeCoordinator) -> dict[str, Any]:
+    result = accuracy(c.episodes)
+    last = next((e for e in reversed(c.episodes) if e.predicted is not None), None)
+    return {
+        "nights_measured": result[1] if result else 0,
+        # Positive: went to bed later than predicted.
+        "last_night_minutes_off": (
+            round((last.onset - last.predicted).total_seconds() / 60) if last else None
+        ),
+    }
+
+
 @dataclass(frozen=True, kw_only=True)
 class BedtimeSensorDescription(SensorEntityDescription):
     value_fn: Callable[[BedtimeCoordinator], Any]
@@ -76,6 +94,14 @@ SENSORS = (
         native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda c: round(c.data.confidence * 100) if c.data else None,
+    ),
+    BedtimeSensorDescription(
+        key="accuracy",
+        translation_key="accuracy",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=_accuracy_value,
+        attrs_fn=_accuracy_attrs,
     ),
     BedtimeSensorDescription(
         key="last_sleep",

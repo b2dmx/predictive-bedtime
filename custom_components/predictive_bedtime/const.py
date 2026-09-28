@@ -14,6 +14,14 @@ CONF_IN_BED = "in_bed_signals"
 CONF_ASLEEP = "asleep_signals"
 CONF_ASLEEP_STATES = "asleep_states"
 
+# Learning control and feedback.
+CONF_PAUSE_ENTITIES = "pause_entities"
+CONF_PAUSE_STATES = "pause_states"
+CONF_NOTIFY = "notify_service"
+CONF_SLEEP_DEBT = "use_sleep_debt"
+DEFAULT_PAUSE_STATES = ["on", "Guest", "Vacation", "Away"]
+NOTIFY_ACTION_PREFIX = "PREDICTIVE_BEDTIME_FORGET"
+
 CONF_TARGET_SLEEP = "target_sleep_hours"
 CONF_PREP = "prep_minutes"
 CONF_UNWIND = "unwind_minutes"
@@ -34,6 +42,7 @@ DEFAULT_OPTIONS = {
     CONF_WAKE_GAP: 30,
     CONF_MIN_SLEEP: 3,
     CONF_RETENTION: 365,
+    CONF_SLEEP_DEBT: False,
 }
 
 STORAGE_VERSION = 1

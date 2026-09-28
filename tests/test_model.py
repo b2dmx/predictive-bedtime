@@ -159,6 +159,60 @@ def test_shift_keywords_match_whole_words_only():
     assert model.is_shift(None, [" "])
 
 
+def _free_nights(count: int, hour: int, length_h: float) -> list:
+    """Nights with no shifts nearby, starting at hour and lasting length_h."""
+    nights = []
+    for d in range(count):
+        onset = datetime(2026, 6, 1, hour, tzinfo=TZ).astimezone(model.UTC) + timedelta(days=d)
+        nights.append(model.Episode(onset, onset + timedelta(hours=length_h), None, None))
+    return nights
+
+
+def test_learns_how_long_nights_last():
+    # Free days: to bed at 23:00, up after 9.5 h. The target is 7.5 h.
+    nights = _free_nights(30, 23, 9.5)
+    now = nights[-1].wake + timedelta(hours=4)
+    pred = model.predict(now, now, [], nights, P, TZ)
+    hours = (pred.wake - pred.bedtime).total_seconds() / 3600
+    assert 9.0 < hours <= 9.5, hours
+
+
+def test_shift_still_caps_learned_wake():
+    nights = _free_nights(30, 23, 9.5)
+    now = nights[-1].wake + timedelta(hours=4)
+    bed = datetime(2026, 7, 1, 23, tzinfo=TZ).astimezone(model.UTC)
+    shift = model.Shift(bed + timedelta(hours=8), bed + timedelta(hours=16))
+    pred = model.predict(now, now, [shift], nights, P, TZ)
+    assert pred.wake <= shift.start - P.prep
+
+
+def test_slept_before_counts_the_last_48_hours():
+    nights = _free_nights(3, 23, 8)
+    t = nights[-1].wake + timedelta(hours=10)
+    # Two full nights fall inside the 48 h window before t, the third only partly.
+    assert 16 <= model.slept_before(t, nights) <= 24
+
+
+def test_sleep_debt_is_off_by_default_and_optional():
+    assert P.use_sleep_debt is False
+    nights = _free_nights(20, 23, 8)
+    now = nights[-1].wake + timedelta(hours=4)
+    with_debt = model.predict(now, now, [], nights, model.Params(use_sleep_debt=True), TZ)
+    assert with_debt.confidence > 0.5
+
+
+def test_accuracy_averages_recent_predicted_nights():
+    onset = at(20, 23)
+    nights = [
+        model.Episode(onset, onset + timedelta(hours=8), None, None, predicted=onset - timedelta(minutes=30)),
+        model.Episode(onset, onset + timedelta(hours=8), None, None, predicted=onset + timedelta(minutes=10)),
+        model.Episode(onset, onset + timedelta(hours=8), None, None),
+    ]
+    minutes, count = model.accuracy(nights)
+    assert count == 2 and round(minutes) == 20
+    assert model.accuracy([]) is None
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

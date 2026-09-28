@@ -13,6 +13,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     EntitySelector,
     EntitySelectorConfig,
     NumberSelector,
@@ -31,15 +32,20 @@ from .const import (
     CONF_IN_BED,
     CONF_KEYWORDS,
     CONF_MIN_SLEEP,
+    CONF_NOTIFY,
+    CONF_PAUSE_ENTITIES,
+    CONF_PAUSE_STATES,
     CONF_PERSON,
     CONF_PREP,
     CONF_RETENTION,
     CONF_SETTLE,
+    CONF_SLEEP_DEBT,
     CONF_TARGET_SLEEP,
     CONF_UNWIND,
     CONF_WAKE_GAP,
     CONF_WIND_DOWN,
     DEFAULT_OPTIONS,
+    DEFAULT_PAUSE_STATES,
     DOMAIN,
     TITLE_SUFFIX,
 )
@@ -90,6 +96,25 @@ SIGNALS_SCHEMA = vol.Schema(
     }
 )
 
+PAUSE_ENTITIES = EntitySelector(EntitySelectorConfig(multiple=True))
+PAUSE_STATES = SelectSelector(
+    SelectSelectorConfig(options=DEFAULT_PAUSE_STATES, multiple=True, custom_value=True)
+)
+
+
+def _learning_schema(notify_services: list[str]) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Optional(CONF_PAUSE_ENTITIES, default=[]): PAUSE_ENTITIES,
+            vol.Optional(CONF_PAUSE_STATES, default=DEFAULT_PAUSE_STATES): PAUSE_STATES,
+            vol.Optional(CONF_NOTIFY): SelectSelector(
+                SelectSelectorConfig(options=notify_services, custom_value=True)
+            ),
+            vol.Required(CONF_SLEEP_DEBT, default=False): BooleanSelector(),
+        }
+    )
+
+
 HABITS_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_FREE_BEDTIME): TimeSelector(),
@@ -113,6 +138,15 @@ OPTIONS_SCHEMA = vol.Schema(
         vol.Required(CONF_RETENTION): _number(30, 1095, 1, "d"),
     }
 )
+
+
+def _notify_services(hass) -> list[str]:
+    """Phones and other targets that can show a notification with buttons."""
+    return sorted(
+        f"notify.{name}"
+        for name in hass.services.async_services_for_domain("notify")
+        if name not in ("send_message", "persistent_notification")
+    )
 
 
 def _check_signals(user_input: dict[str, Any]) -> dict[str, str]:
@@ -184,7 +218,7 @@ class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
             errors = _check_signals(user_input)
             if not errors:
                 self._data.update(user_input)
-                return await self.async_step_habits()
+                return await self.async_step_learning()
 
         return self.async_show_form(
             step_id="signals",
@@ -193,6 +227,17 @@ class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
                 user_input or {CONF_ASLEEP_STATES: list(DEFAULT_ASLEEP_VALUES)},
             ),
             errors=errors,
+            description_placeholders={"name": self._first_name()},
+        )
+
+    async def async_step_learning(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if user_input is not None:
+            self._data.update(user_input)
+            return await self.async_step_habits()
+
+        return self.async_show_form(
+            step_id="learning",
+            data_schema=_learning_schema(_notify_services(self.hass)),
             description_placeholders={"name": self._first_name()},
         )
 
@@ -208,6 +253,14 @@ class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_IN_BED: self._data.get(CONF_IN_BED, []),
                     CONF_ASLEEP: self._data.get(CONF_ASLEEP, []),
                     CONF_ASLEEP_STATES: self._data[CONF_ASLEEP_STATES],
+                    CONF_PAUSE_ENTITIES: self._data.get(CONF_PAUSE_ENTITIES, []),
+                    CONF_PAUSE_STATES: self._data.get(CONF_PAUSE_STATES, DEFAULT_PAUSE_STATES),
+                    CONF_SLEEP_DEBT: self._data.get(CONF_SLEEP_DEBT, False),
+                    **(
+                        {CONF_NOTIFY: self._data[CONF_NOTIFY]}
+                        if self._data.get(CONF_NOTIFY)
+                        else {}
+                    ),
                     **user_input,
                 },
             )
@@ -247,7 +300,7 @@ class PredictiveBedtimeOptionsFlow(OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=self.add_suggested_values_to_schema(
-                OPTIONS_SCHEMA,
+                OPTIONS_SCHEMA.extend(_learning_schema(_notify_services(self.hass)).schema),
                 user_input
                 or {
                     **DEFAULT_OPTIONS,

@@ -1,20 +1,43 @@
 """Predictive Bedtime: learns when each person goes to sleep from their work calendars."""
 from __future__ import annotations
 
+import voluptuous as vol
+
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     CONF_ASLEEP,
     CONF_ASLEEP_STATES,
     CONF_BED_SENSOR,
     CONF_IN_BED,
+    DOMAIN,
     TITLE_SUFFIX,
 )
 from .coordinator import BedtimeConfigEntry, BedtimeCoordinator
 from .model import DEFAULT_ASLEEP_VALUES
 
-PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.SENSOR, Platform.SWITCH]
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+FORGET_SCHEMA = vol.Schema({vol.Required("config_entry_id"): cv.string})
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    async def forget_last_night(call: ServiceCall) -> None:
+        entry = hass.config_entries.async_get_entry(call.data["config_entry_id"])
+        if entry is None or entry.domain != DOMAIN or not hasattr(entry, "runtime_data"):
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="entry_not_loaded"
+            )
+        entry.runtime_data.async_forget_night()
+
+    hass.services.async_register(DOMAIN, "forget_last_night", forget_last_night, FORGET_SCHEMA)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: BedtimeConfigEntry) -> bool:

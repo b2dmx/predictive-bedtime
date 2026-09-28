@@ -1,14 +1,53 @@
 {
   "entity": {
     "sensor": {
-      "predicted_bedtime": { "default": "mdi:bed-clock" },
-      "expected_wake": { "default": "mdi:alarm" },
-      "confidence": { "default": "mdi:chart-bell-curve" },
-      "last_sleep": { "default": "mdi:history" }
+      "predicted_bedtime": {
+        "default": "mdi:bed-clock"
+      },
+      "expected_wake": {
+        "default": "mdi:alarm"
+      },
+      "confidence": {
+        "default": "mdi:chart-bell-curve"
+      },
+      "last_sleep": {
+        "default": "mdi:history"
+      },
+      "accuracy": {
+        "default": "mdi:target"
+      }
     },
     "binary_sensor": {
-      "expected_asleep": { "default": "mdi:bed-outline", "state": { "on": "mdi:sleep" } },
-      "wind_down": { "default": "mdi:weather-night", "state": { "on": "mdi:weather-night-partly-cloudy" } }
+      "expected_asleep": {
+        "default": "mdi:bed-outline",
+        "state": {
+          "on": "mdi:sleep"
+        }
+      },
+      "wind_down": {
+        "default": "mdi:weather-night",
+        "state": {
+          "on": "mdi:weather-night-partly-cloudy"
+        }
+      }
+    },
+    "switch": {
+      "learning": {
+        "default": "mdi:school",
+        "state": {
+          "off": "mdi:school-outline"
+        }
+      }
+    },
+    "button": {
+      "forget_last_night": {
+        "default": "mdi:delete-clock"
+      }
+    }
+  },
+  "services": {
+    "forget_last_night": {
+      "service": "mdi:delete-clock"
     }
   }
 }

@@ -57,6 +57,22 @@
         "data_description": {
           "shift_keywords": "Whole words, ignoring case: \"work\" matches \"Work (Sam)\" and \"Sam work\" but not \"Workout\". Type your own and press Enter to add it."
         }
+      },
+      "learning": {
+        "title": "Learning and feedback",
+        "description": "All optional. Nights that are not typical for {name} (guests, travel, illness) can be kept out of learning.",
+        "data": {
+          "pause_entities": "Pause learning when",
+          "pause_states": "…is in one of these states",
+          "notify_service": "Send a note after each night to",
+          "use_sleep_debt": "Account for sleep debt"
+        },
+        "data_description": {
+          "pause_entities": "For example a home-mode selector or a guest/vacation toggle. Nights are not learned while any of these is in one of the states below. There is also a Learning switch to pause by hand.",
+          "pause_states": "Matched ignoring case. Type your own and press Enter to add it.",
+          "notify_service": "A phone from the Home Assistant app. After each recorded night it gets a note with a Forget button, for nights that were not normal.",
+          "use_sleep_debt": "Also compare how much {name} slept in the previous 48 hours, since short nights tend to lead to earlier bedtimes. Best turned on once a few weeks of nights have been learned."
+        }
       }
     },
     "error": {
@@ -86,13 +102,18 @@
           "settle_minutes": "Time in bed before it counts as a sleep attempt",
           "wake_gap_minutes": "Time out of bed before it counts as awake",
           "min_sleep_hours": "Shortest stretch that counts as a night",
-          "learning_window_days": "Learning window"
+          "learning_window_days": "Learning window",
+          "pause_entities": "Pause learning when",
+          "pause_states": "…is in one of these states",
+          "notify_service": "Send a note after each night to",
+          "use_sleep_debt": "Account for sleep debt"
         },
         "data_description": {
           "target_sleep_hours": "Used until enough nights have been learned; after that, actual behaviour wins.",
           "learning_window_days": "Nights older than this are discarded. Within the window, recent nights count more.",
           "asleep_states": "Only matters for trackers that report text states.",
-          "shift_keywords": "Leave empty to treat every timed event as a shift."
+          "shift_keywords": "Leave empty to treat every timed event as a shift.",
+          "use_sleep_debt": "Also compare how much was slept in the previous 48 hours."
         }
       }
     },
@@ -113,6 +134,9 @@
       },
       "last_sleep": {
         "name": "Last sleep"
+      },
+      "accuracy": {
+        "name": "Accuracy"
       }
     },
     "binary_sensor": {
@@ -122,6 +146,16 @@
       "wind_down": {
         "name": "Wind-down"
       }
+    },
+    "switch": {
+      "learning": {
+        "name": "Learning"
+      }
+    },
+    "button": {
+      "forget_last_night": {
+        "name": "Forget last night"
+      }
     }
   },
   "selector": {
@@ -130,6 +164,23 @@
         "only_shifts": "Only work shifts",
         "mixed": "Work shifts and other events"
       }
+    }
+  },
+  "services": {
+    "forget_last_night": {
+      "name": "Forget last night",
+      "description": "Removes the most recently recorded night from learning, for a night that was not normal.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Person",
+          "description": "The Predictive Bedtime entry to forget a night for."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "entry_not_loaded": {
+      "message": "That Predictive Bedtime entry is not loaded."
     }
   }
 }

@@ -35,17 +35,23 @@ from .const import (
     CONF_IN_BED,
     CONF_KEYWORDS,
     CONF_MIN_SLEEP,
+    CONF_NOTIFY,
+    CONF_PAUSE_ENTITIES,
+    CONF_PAUSE_STATES,
     CONF_PERSON,
     CONF_PREP,
     CONF_RETENTION,
     CONF_SETTLE,
+    CONF_SLEEP_DEBT,
     CONF_TARGET_SLEEP,
     CONF_UNWIND,
     CONF_WAKE_GAP,
     CONF_WIND_DOWN,
     DEFAULT_OPTIONS,
+    DEFAULT_PAUSE_STATES,
     DOMAIN,
     HALF_LIFE_FRACTION,
+    NOTIFY_ACTION_PREFIX,
     SHIFT_RETENTION,
     STORAGE_VERSION,
 )
@@ -80,6 +86,7 @@ def params_from_options(options: dict[str, Any]) -> Params:
         wake_gap=timedelta(minutes=float(o[CONF_WAKE_GAP])),
         min_sleep=timedelta(hours=float(o[CONF_MIN_SLEEP])),
         half_life_days=float(o[CONF_RETENTION]) * HALF_LIFE_FRACTION,
+        use_sleep_debt=bool(o[CONF_SLEEP_DEBT]),
     )
 
 
@@ -107,6 +114,9 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         self._unsub_next: Callable[[], None] | None = None
         self._needs_backfill = False
         self._retry_fetch_at: datetime | None = None
+        # The Learning switch; pause conditions can also stop learning.
+        self.learning_enabled = True
+        self._night_paused = False
         # Combined sleep reading and when it last flipped.
         self._on: bool | None = None
         self._since: datetime | None = None
@@ -131,6 +141,22 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
     @property
     def asleep_values(self) -> list[str]:
         return list(self._conf(CONF_ASLEEP_STATES) or DEFAULT_ASLEEP_VALUES)
+
+    @property
+    def pause_entities(self) -> list[str]:
+        return list(self._conf(CONF_PAUSE_ENTITIES) or [])
+
+    @property
+    def paused_by(self) -> str | None:
+        """Why learning is off right now, or None if it is on."""
+        if not self.learning_enabled:
+            return "switch"
+        states = {s.lower() for s in (self._conf(CONF_PAUSE_STATES) or DEFAULT_PAUSE_STATES)}
+        for entity_id in self.pause_entities:
+            state = self.hass.states.get(entity_id)
+            if state is not None and state.state.lower() in states:
+                return entity_id
+        return None
 
     @property
     def signals(self) -> list[str]:
@@ -179,17 +205,26 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         self.last_wake = dt_util.parse_datetime(stored["last_wake"]) if stored.get("last_wake") else None
         if stored.get("committed"):
             self.committed = Prediction.from_dict(stored["committed"])
+        self.learning_enabled = stored.get("learning_enabled", True)
+        self._night_paused = stored.get("night_paused", False)
 
     @callback
     def async_start_tracking(self) -> None:
         entry = self.config_entry
         entry.async_on_unload(
             async_track_state_change_event(
-                self.hass, [*self.signals, self.person], self._async_on_signal
+                self.hass,
+                [*self.signals, self.person, *self.pause_entities],
+                self._async_on_signal,
             )
         )
         entry.async_on_unload(
             async_track_state_change_event(self.hass, self.calendars, self._async_on_calendar)
+        )
+        entry.async_on_unload(
+            self.hass.bus.async_listen(
+                "mobile_app_notification_action", self._async_on_notification_action
+            )
         )
         entry.async_on_unload(self._cancel_timers)
         self._async_evaluate()
@@ -222,6 +257,8 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
             "detector": self.detector.as_dict(),
             "last_wake": self.last_wake.isoformat() if self.last_wake else None,
             "committed": self.committed.as_dict() if self.committed else None,
+            "learning_enabled": self.learning_enabled,
+            "night_paused": self._night_paused,
         }
 
     def _forget_old_nights(self) -> None:
@@ -258,8 +295,17 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
 
         was_asleep = self.detector.asleep
         finished = self.detector.step(now, on, since, sure, p)
+        if self.detector.asleep and not was_asleep:
+            self._night_paused = self.paused_by is not None
         if finished:
-            self._record(*finished)
+            if self._night_paused or self.paused_by is not None:
+                _LOGGER.debug("%s: learning paused, night not recorded", self.config_entry.title)
+                self.last_wake = finished[1]
+                self.committed = None
+            else:
+                self._record(*finished)
+                self._async_notify_recorded(self.episodes[-1])
+            self._night_paused = False
         if finished or was_asleep != self.detector.asleep:
             self._save()
             self.async_update_listeners()
@@ -288,11 +334,86 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         return min(changed) if on else max(changed)
 
     def _record(self, onset: datetime, wake: datetime, source: str) -> None:
-        self.episodes = [*self.episodes, make_episode(onset, wake, self.shifts, source)]
+        # What was predicted for this night, if the prediction was about this night.
+        guess = self.committed or self.data
+        predicted = (
+            guess.bedtime if guess and abs(guess.bedtime - onset) <= timedelta(hours=6) else None
+        )
+        self.episodes = [
+            *self.episodes,
+            make_episode(onset, wake, self.shifts, source, predicted),
+        ]
         self._forget_old_nights()
         self.last_wake = wake
         self.committed = None
         _LOGGER.debug("%s: recorded sleep %s -> %s", self.config_entry.title, onset, wake)
+
+    # --- learning control ----------------------------------------------
+
+    @callback
+    def async_set_learning(self, enabled: bool) -> None:
+        self.learning_enabled = enabled
+        self._save()
+        self.async_update_listeners()
+
+    @callback
+    def async_forget_night(self, onset: datetime | None = None) -> bool:
+        """Forget the last night, or the night that began at onset."""
+        if not self.episodes:
+            return False
+        if onset is None:
+            target = self.episodes[-1]
+        else:
+            matches = [e for e in self.episodes if abs(e.onset - onset) < timedelta(minutes=1)]
+            if not matches:
+                return False
+            target = matches[0]
+        self.episodes = [e for e in self.episodes if e is not target]
+        _LOGGER.info("%s: forgot the night from %s", self.config_entry.title, target.onset)
+        self._save()
+        self.async_update_listeners()
+        self.hass.async_create_task(self.async_request_refresh())
+        return True
+
+    def _async_notify_recorded(self, episode: Episode) -> None:
+        service = self._conf(CONF_NOTIFY)
+        if not service:
+            return
+        tz = dt_util.get_default_time_zone()
+        onset = episode.onset.astimezone(tz)
+        wake = episode.wake.astimezone(tz)
+        hours = (episode.wake - episode.onset).total_seconds() / 3600
+        entry_id = self.config_entry.entry_id
+        forget = f"{NOTIFY_ACTION_PREFIX}_{entry_id}_{int(episode.onset.timestamp())}"
+        self.hass.async_create_task(
+            self.hass.services.async_call(
+                "notify",
+                str(service).removeprefix("notify."),
+                {
+                    "title": self.config_entry.title,
+                    "message": (
+                        f"Recorded a night: {onset:%H:%M} to {wake:%H:%M} ({hours:.1f} h). "
+                        "Tap Forget if it was not a normal night."
+                    ),
+                    "data": {
+                        "tag": f"{NOTIFY_ACTION_PREFIX}_{entry_id}",
+                        "actions": [{"action": forget, "title": "Forget"}],
+                    },
+                },
+            )
+        )
+
+    @callback
+    def _async_on_notification_action(self, event: Event) -> None:
+        action = str(event.data.get("action", ""))
+        prefix = f"{NOTIFY_ACTION_PREFIX}_{self.config_entry.entry_id}_"
+        if not action.startswith(prefix):
+            return
+        try:
+            onset = dt_util.utc_from_timestamp(int(action.removeprefix(prefix)))
+        except ValueError:
+            return
+        self.async_forget_night(onset)
 
     # --- calendars -----------------------------------------------------
 

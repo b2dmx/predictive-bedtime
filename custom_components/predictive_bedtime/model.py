@@ -5,10 +5,11 @@ Each recorded sleep is described by three features taken at the moment you fell 
 * hours until the next shift starts
 * hours since the last shift ended
 * local clock time
+* optionally, hours slept in the 48 hours before (sleep debt)
 
 To predict, every candidate time over the next 24 hours is described the same way and
 scored by how closely it resembles past sleeps (a kernel density, weighted toward recent
-nights). A schedule-based guess is always added as a weak prior, so the first nights and
+nights). How long similar nights lasted gives the expected wake. A schedule-based guess is always added as a weak prior, so the first nights and
 never-seen-before schedules still produce a sensible answer. The best-scoring time wins.
 """
 from __future__ import annotations
@@ -26,6 +27,8 @@ HORIZON_H = 30.0
 SIGMA_NEXT = 1.5
 SIGMA_PREV = 2.5
 SIGMA_CLOCK = 2.0
+SIGMA_DEBT = 3.0
+DEBT_WINDOW = timedelta(hours=48)
 # Width of the schedule prior, in hours.
 SIGMA_RULE = 1.0
 # The prior counts as this many perfectly matching nights.
@@ -75,6 +78,7 @@ class Params:
     wake_gap: timedelta = timedelta(minutes=30)
     min_sleep: timedelta = timedelta(hours=3)
     half_life_days: float = 180.0
+    use_sleep_debt: bool = False
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -92,6 +96,8 @@ class Episode:
     prev_end: datetime | None
     next_start: datetime | None
     source: str = SOURCE_IN_BED
+    # What was predicted for this night, to measure accuracy.
+    predicted: datetime | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -100,6 +106,7 @@ class Episode:
             "prev_end": _iso(self.prev_end),
             "next_start": _iso(self.next_start),
             "source": self.source,
+            "predicted": _iso(self.predicted),
         }
 
     @classmethod
@@ -110,6 +117,7 @@ class Episode:
             prev_end=_parse(data.get("prev_end")),
             next_start=_parse(data.get("next_start")),
             source=data.get("source", SOURCE_IN_BED),
+            predicted=_parse(data.get("predicted")),
         )
 
 
@@ -192,10 +200,37 @@ def features(
 
 
 def make_episode(
-    onset: datetime, wake: datetime, shifts: Iterable[Shift], source: str = SOURCE_IN_BED
+    onset: datetime,
+    wake: datetime,
+    shifts: Iterable[Shift],
+    source: str = SOURCE_IN_BED,
+    predicted: datetime | None = None,
 ) -> Episode:
     prev, nxt = neighbours(onset, shifts)
-    return Episode(onset, wake, prev.end if prev else None, nxt.start if nxt else None, source)
+    return Episode(
+        onset, wake, prev.end if prev else None, nxt.start if nxt else None, source, predicted
+    )
+
+
+def slept_before(t: datetime, episodes: Iterable[Episode]) -> float:
+    """Hours slept in the DEBT_WINDOW before t."""
+    window_start = t - DEBT_WINDOW
+    total = timedelta()
+    for e in episodes:
+        overlap = min(e.wake, t) - max(e.onset, window_start)
+        if overlap > timedelta():
+            total += overlap
+    return _hours(total)
+
+
+def accuracy(episodes: Sequence[Episode], nights: int = 14) -> tuple[float, int] | None:
+    """Mean absolute bedtime error in minutes over the most recent predicted nights."""
+    errors = [
+        abs(_hours(e.onset - e.predicted)) * 60 for e in episodes if e.predicted is not None
+    ][-nights:]
+    if not errors:
+        return None
+    return sum(errors) / len(errors), len(errors)
 
 
 def schedule_bedtime(start: datetime, shifts: Sequence[Shift], p: Params, tz: tzinfo) -> datetime:
@@ -233,14 +268,41 @@ def predict(
     p: Params,
     tz: tzinfo,
 ) -> Prediction:
-    """Predict the next sleep onset at or after start."""
+    """Predict the next sleep onset at or after start, and when it will end."""
     rule = schedule_bedtime(start, shifts, p, tz)
 
-    learned: list[tuple[float, float, float, float]] = []
+    # (until next shift, since last shift, clock, debt, hours slept, weight)
+    learned: list[tuple[float, float, float, float, float, float]] = []
     for e in episodes:
         weight = 0.5 ** (_hours(now - e.onset) / 24 / p.half_life_days)
         if weight >= MIN_WEIGHT:
-            learned.append((*features(e.onset, e.prev_end, e.next_start, tz), weight))
+            debt = slept_before(e.onset, episodes) if p.use_sleep_debt else 0.0
+            learned.append(
+                (
+                    *features(e.onset, e.prev_end, e.next_start, tz),
+                    debt,
+                    _hours(e.wake - e.onset),
+                    weight,
+                )
+            )
+
+    def similarity(t: datetime) -> list[float]:
+        prev, nxt = neighbours(t, shifts)
+        n, pv, c = features(t, prev.end if prev else None, nxt.start if nxt else None, tz)
+        debt = slept_before(t, episodes) if p.use_sleep_debt else 0.0
+        return [
+            w
+            * math.exp(
+                -0.5
+                * (
+                    ((n - en) / SIGMA_NEXT) ** 2
+                    + ((pv - ep) / SIGMA_PREV) ** 2
+                    + (_clock_gap(c, ec) / SIGMA_CLOCK) ** 2
+                    + ((debt - ed) / SIGMA_DEBT) ** 2
+                )
+            )
+            for en, ep, ec, ed, _, w in learned
+        ]
 
     start = datetime.fromtimestamp(
         math.ceil(start.timestamp() / STEP.total_seconds()) * STEP.total_seconds(), UTC
@@ -249,27 +311,21 @@ def predict(
     t = start
     while t <= start + LOOKAHEAD:
         if not at_work(t, shifts):
-            prev, nxt = neighbours(t, shifts)
-            n, pv, c = features(t, prev.end if prev else None, nxt.start if nxt else None, tz)
-            mass = sum(
-                w
-                * math.exp(
-                    -0.5
-                    * (
-                        ((n - en) / SIGMA_NEXT) ** 2
-                        + ((pv - ep) / SIGMA_PREV) ** 2
-                        + (_clock_gap(c, ec) / SIGMA_CLOCK) ** 2
-                    )
-                )
-                for en, ep, ec, w in learned
-            )
+            mass = sum(similarity(t))
             prior = PRIOR_WEIGHT * math.exp(-0.5 * (_hours(t - rule) / SIGMA_RULE) ** 2)
             if mass + prior > best_score:
                 best_score, best_t, best_mass = mass + prior, t, mass
         t += STEP
 
+    # Expected length: how long similar nights lasted, pulled toward the target while
+    # there is little to go on. A shift still sets the latest possible wake.
+    weights = similarity(best_t)
+    hours = (
+        sum(k * d for k, (*_, d, _w) in zip(weights, learned, strict=True))
+        + PRIOR_WEIGHT * _hours(p.target_sleep)
+    ) / (sum(weights) + PRIOR_WEIGHT)
+    wake = best_t + timedelta(hours=hours)
     prev, nxt = neighbours(best_t, shifts)
-    wake = best_t + p.target_sleep
     if nxt:
         wake = min(wake, nxt.start - p.prep)
     return Prediction(
