@@ -17,10 +17,13 @@
         "default": "mdi:target"
       },
       "first_bedtime": {
-        "default": "mdi:bed-clock"
+        "default": "mdi:sort-clock-ascending-outline"
       },
       "last_bedtime": {
-        "default": "mdi:bed-clock"
+        "default": "mdi:sort-clock-descending-outline"
+      },
+      "last_sleep_duration": {
+        "default": "mdi:timer-sand"
       }
     },
     "binary_sensor": {

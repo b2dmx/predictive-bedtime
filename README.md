@@ -9,10 +9,10 @@ It is built for irregular and rotating work schedules. It reads each person's wo
 - **Learns from real nights.** Any stretch of 3+ hours in bed (while home) or asleep according to a tracker is recorded as a night's sleep. Shorter stretches are ignored.
 - **Uses every signal you have.** Combine in-bed signals and sleep trackers; when one drops out, the others fill the gap. Each night records whether a tracker confirmed it.
 - **Thinks in shifts, not weekdays.** Each night is described by hours until the next shift, hours since the last one ended, and time of day. A new rotation, a swapped shift or a schedule that changes every few months is handled by comparing it with similar situations, including ones never seen exactly before.
-- **Starts sensible, then adapts.** Until enough nights are learned, predictions follow the schedule: a full night before early shifts, an unwinding buffer after late ones, and your usual bedtime on free days. As nights accumulate, actual behaviour takes over. **Confidence** shows how far along it is.
+- **Starts sensible, then adapts.** Until enough nights are learned, predictions follow the schedule: a full night before early shifts, an unwinding buffer after late ones, and your usual bedtime on free days. As nights accumulate, actual behaviour takes over. **Prediction confidence** shows how far along it is.
 - **Learns how long you sleep, too.** Next wake comes from how long similar nights lasted, capped by the next shift.
 - **Optional sleep debt.** When enabled, how much was slept in the previous 48 hours is also compared, since short nights tend to lead to earlier bedtimes.
-- **You stay in control.** A Learning switch and "pause learning when" conditions (a home-mode selector, a guest or vacation toggle) keep untypical nights out. A Forget last night button, an action, and an optional phone notification with a Forget button handle the rest.
+- **You stay in control.** A Learning switch and "pause learning when" conditions (a home-mode selector, a guest or vacation toggle) keep untypical nights out. A Forget previous sleep button, an action, and an optional phone notification with a Forget button handle the rest.
 - **Bounded memory.** Nights older than the learning window (365 days by default) are discarded. Within the window, recent nights count more.
 - **Nothing polls.** Calendars are re-read once a day, or immediately when one of that person's calendars changes. Sensors switch at the exact moments they are due.
 - **Head start.** On first setup it learns from whatever bed history the recorder still holds.
@@ -22,12 +22,13 @@ It is built for irregular and rotating work schedules. It reads each person's wo
 | Entity | What it is |
 |---|---|
 | Next bedtime | When this person is expected to go to bed next. Attributes include the schedule-only estimate and the shifts either side. |
-| Next wake | A full night after bedtime, or earlier if a shift needs them up. |
-| Confidence | 0–100 %, how much the prediction rests on learned nights rather than the schedule alone. |
-| Last sleep | When the last recorded night began, with its wake time, length and source. |
-| Accuracy | Average minutes between predicted and actual bedtime over the last 14 nights. |
+| Next wake-up | When they are expected up: how long similar sleeps lasted, or earlier if a shift needs them up. |
+| Prediction confidence | 0–100 %, how much the prediction rests on learned nights rather than the schedule alone. Diagnostic. |
+| Previous sleep | When the most recent recorded sleep began, with when it ended, its length and its source. |
+| Previous sleep duration | Its length in hours, kept as long-term statistics for graphs. |
+| Prediction error | Average minutes between predicted and actual bedtime over the last 14 sleeps. Lower is better. Diagnostic. |
 | Learning (switch) | Turn off to stop learning by hand. Attributes show whether learning is active right now and what paused it. |
-| Forget last night (button) | Removes the most recent night from learning. |
+| Forget previous sleep (button) | Removes the most recent sleep from learning. |
 | Expected asleep | On during the predicted sleep window, or once they have settled in bed. |
 | Wind-down | On for a set time before the predicted bedtime. |
 
@@ -37,9 +38,9 @@ Add the integration once more and choose **Add household sensors** for whole-hom
 
 | Entity | What it is |
 |---|---|
-| Everyone asleep | On when everyone who is home is expected asleep. Attributes list who is asleep and who is awake. |
+| Everyone expected asleep | On when everyone who is home is expected asleep. Attributes list who is and who isn't. |
 | Anyone winding down | On when anyone who is home is winding down. |
-| First bedtime / Last bedtime | Earliest and latest predicted bedtimes, with who they belong to. |
+| Earliest bedtime / Latest bedtime | Earliest and latest predicted bedtimes, with who they belong to. |
 
 ### Example
 
@@ -98,7 +99,7 @@ Copy `custom_components/predictive_bedtime` into your `config/custom_components`
 
 ## Actions
 
-`predictive_bedtime.forget_last_night` removes the most recent night for one person (pick their entry).
+`predictive_bedtime.forget_last_night` removes the most recent sleep for one person (pick their entry).
 
 ## Settings
 

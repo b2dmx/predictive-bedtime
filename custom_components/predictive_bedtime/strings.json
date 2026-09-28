@@ -84,7 +84,7 @@
       },
       "household": {
         "title": "Household sensors",
-        "description": "Adds whole-home sensors across everyone set up: whether everyone home is expected asleep, whether anyone is winding down, and the first and last predicted bedtimes. Useful for locks, heating and common-area lights, especially without a home-mode system of your own."
+        "description": "Adds whole-home sensors across everyone set up: whether everyone home is expected asleep, whether anyone is winding down, and the earliest and latest predicted bedtimes. Useful for locks, heating and common-area lights, especially without a home-mode system of your own."
       }
     },
     "error": {
@@ -140,22 +140,25 @@
         "name": "Next bedtime"
       },
       "expected_wake": {
-        "name": "Next wake"
+        "name": "Next wake-up"
       },
       "confidence": {
-        "name": "Confidence"
-      },
-      "last_sleep": {
-        "name": "Last sleep"
+        "name": "Prediction confidence"
       },
       "accuracy": {
-        "name": "Accuracy"
+        "name": "Prediction error"
+      },
+      "last_sleep": {
+        "name": "Previous sleep"
+      },
+      "last_sleep_duration": {
+        "name": "Previous sleep duration"
       },
       "first_bedtime": {
-        "name": "First bedtime"
+        "name": "Earliest bedtime"
       },
       "last_bedtime": {
-        "name": "Last bedtime"
+        "name": "Latest bedtime"
       }
     },
     "binary_sensor": {
@@ -166,7 +169,7 @@
         "name": "Wind-down"
       },
       "household_expected_asleep": {
-        "name": "Everyone asleep"
+        "name": "Everyone expected asleep"
       },
       "anyone_winding_down": {
         "name": "Anyone winding down"
@@ -179,7 +182,7 @@
     },
     "button": {
       "forget_last_night": {
-        "name": "Forget last night"
+        "name": "Forget previous sleep"
       }
     }
   },
@@ -193,12 +196,12 @@
   },
   "services": {
     "forget_last_night": {
-      "name": "Forget last night",
-      "description": "Removes the most recently recorded night from learning, for a night that was not normal.",
+      "name": "Forget previous sleep",
+      "description": "Removes the most recently recorded sleep from learning, for one that was not typical.",
       "fields": {
         "config_entry_id": {
           "name": "Person",
-          "description": "The Predictive Sleep entry to forget a night for."
+          "description": "The person's Predictive Sleep entry."
         }
       }
     }

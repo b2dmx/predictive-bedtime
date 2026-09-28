@@ -10,7 +10,7 @@ blueprint:
   input:
     expected_asleep:
       name: Expected asleep sensor
-      description: A person's Expected asleep sensor, or the household's Everyone asleep.
+      description: A person's Expected asleep sensor, or the household's Everyone expected asleep.
       selector:
         entity:
           filter:

@@ -8,7 +8,7 @@ blueprint:
   input:
     next_bedtime:
       name: Next bedtime
-      description: A person's Next bedtime sensor, or the household's First bedtime.
+      description: A person's Next bedtime sensor, or the household's Earliest bedtime.
       selector:
         entity:
           filter:

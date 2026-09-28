@@ -1,4 +1,4 @@
-"""Sensors: predicted bedtime and wake, confidence, last sleep."""
+"""Sensors: next bedtime and wake-up, prediction quality, previous sleep."""
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -12,7 +12,7 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, UnitOfTime
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -36,20 +36,23 @@ def _bedtime_attrs(c: BedtimeCoordinator) -> dict[str, Any]:
         "next_shift_start": _iso(p.next_start),
         "wake_by": _iso(p.next_start - c.params.prep) if p.next_start else None,
         "nights_learned": len(c.episodes),
-        "nights_used": p.nights_used,
-        "held_for_wind_down": c.committed is not None,
+        # Held from wind-down until the expected wake-up, rather than drifting.
+        "locked": c.committed is not None,
     }
+
+
+def _hours(c: BedtimeCoordinator) -> float | None:
+    if not c.episodes:
+        return None
+    e = c.episodes[-1]
+    return round((e.wake - e.onset).total_seconds() / 3600, 2)
 
 
 def _last_sleep_attrs(c: BedtimeCoordinator) -> dict[str, Any]:
     if not c.episodes:
         return {}
     e = c.episodes[-1]
-    return {
-        "wake": _iso(e.wake),
-        "hours": round((e.wake - e.onset).total_seconds() / 3600, 2),
-        "source": e.source,
-    }
+    return {"ended": _iso(e.wake), "hours": _hours(c), "source": e.source}
 
 
 def _accuracy_value(c: BedtimeCoordinator) -> float | None:
@@ -63,7 +66,7 @@ def _accuracy_attrs(c: BedtimeCoordinator) -> dict[str, Any]:
     return {
         "nights_measured": result[1] if result else 0,
         # Positive: went to bed later than predicted.
-        "last_night_minutes_off": (
+        "previous_error_minutes": (
             round((last.onset - last.predicted).total_seconds() / 60) if last else None
         ),
     }
@@ -92,6 +95,7 @@ SENSORS = (
     BedtimeSensorDescription(
         key="confidence",
         translation_key="confidence",
+        entity_category=EntityCategory.DIAGNOSTIC,
         native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda c: round(c.data.confidence * 100) if c.data else None,
@@ -99,6 +103,7 @@ SENSORS = (
     BedtimeSensorDescription(
         key="accuracy",
         translation_key="accuracy",
+        entity_category=EntityCategory.DIAGNOSTIC,
         native_unit_of_measurement=UnitOfTime.MINUTES,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=_accuracy_value,
@@ -110,6 +115,15 @@ SENSORS = (
         device_class=SensorDeviceClass.TIMESTAMP,
         value_fn=lambda c: c.episodes[-1].onset if c.episodes else None,
         attrs_fn=_last_sleep_attrs,
+    ),
+    BedtimeSensorDescription(
+        key="last_sleep_duration",
+        translation_key="last_sleep_duration",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.HOURS,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        value_fn=_hours,
     ),
 )
 

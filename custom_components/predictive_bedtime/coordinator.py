@@ -625,7 +625,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         persistent_notification.async_create(
             self.hass,
             f"{found}\n\nUntil more nights are learned, predictions follow the work schedule "
-            "and the starting habits. Watch **Confidence** rise as it learns.",
+            "and the starting habits. Watch **Prediction confidence** rise as it learns.",
             title="Predictive Sleep is set up",
             notification_id=f"{DOMAIN}_{self.config_entry.entry_id}_setup",
         )
