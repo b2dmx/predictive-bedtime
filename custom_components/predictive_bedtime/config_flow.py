@@ -12,6 +12,7 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import callback
+from homeassistant.loader import async_get_integration
 from homeassistant.helpers.selector import (
     BooleanSelector,
     EntitySelector,
@@ -164,7 +165,12 @@ class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
         self._data: dict[str, Any] = {}
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        return self.async_show_menu(step_id="user", menu_options=["person", KIND_HOUSEHOLD])
+        integration = await async_get_integration(self.hass, DOMAIN)
+        return self.async_show_menu(
+            step_id="user",
+            menu_options=["person", KIND_HOUSEHOLD],
+            description_placeholders={"version": str(integration.version or "")},
+        )
 
     async def async_step_household(
         self, user_input: dict[str, Any] | None = None

@@ -129,3 +129,7 @@ Everything runs locally. Learned nights are stored in Home Assistant's `.storage
 ## License
 
 MIT
+
+---
+
+<p align="center">Predictive Sleep by Goobis<br>AI was used to help develop this integration.</p>

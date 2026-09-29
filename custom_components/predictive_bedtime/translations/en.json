@@ -76,7 +76,7 @@
       },
       "user": {
         "title": "Predictive Sleep",
-        "description": "Predictive Sleep learns when each person goes to sleep from their work schedule and sleep signals, then predicts upcoming bedtimes so the home can get ready ahead of time.",
+        "description": "Predictive Sleep learns when each person goes to sleep from their work schedule and sleep signals, then predicts upcoming bedtimes so the home can get ready ahead of time.\n\nPredictive Sleep v{version} by Goobis\nAI was used to help develop this integration.",
         "menu_options": {
           "person": "Add a person",
           "household": "Add household sensors"
