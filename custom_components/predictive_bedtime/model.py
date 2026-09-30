@@ -132,6 +132,8 @@ class Episode:
     source: str = SOURCE_IN_BED
     # What was predicted for this night, to measure accuracy.
     predicted: datetime | None = None
+    # When they left home after waking, if soon after: marks a get-up-and-go morning.
+    left_home: datetime | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -141,6 +143,7 @@ class Episode:
             "next_start": _iso(self.next_start),
             "source": self.source,
             "predicted": _iso(self.predicted),
+            "left_home": _iso(self.left_home),
         }
 
     @classmethod
@@ -152,6 +155,7 @@ class Episode:
             next_start=_parse(data.get("next_start")),
             source=data.get("source", SOURCE_IN_BED),
             predicted=_parse(data.get("predicted")),
+            left_home=_parse(data.get("left_home")),
         )
 
 
@@ -327,20 +331,51 @@ def schedule_bedtime(start: datetime, shifts: Sequence[Shift], p: Params, tz: tz
 
 # Getting up more than this long before a shift is a natural wake-up, not getting ready.
 PREP_MAX = timedelta(hours=2, minutes=30)
+# Leaving home within this long of waking marks a get-up-and-go morning.
+DEPART_MAX = timedelta(minutes=90)
+
+
+def is_get_ready_morning(e: Episode) -> bool:
+    """Woke, got ready and left for a shift that started soon after.
+
+    Lazy mornings before a late shift (up at 8 for a 2 pm start) fail on both counts: the
+    shift is hours away and they don't leave until much later.
+    """
+    if e.next_start is None or e.left_home is None:
+        return False
+    return (
+        timedelta() < e.next_start - e.wake <= PREP_MAX
+        and timedelta() < e.left_home - e.wake <= DEPART_MAX
+        and e.left_home <= e.next_start
+    )
+
+
+def first_departure(
+    wake: datetime, changes: Sequence[tuple[datetime, str]], home: str = "home"
+) -> datetime | None:
+    """When presence first went from home to elsewhere after wake, within DEPART_MAX."""
+    previous: str | None = None
+    for when, state in changes:
+        if state in ("unavailable", "unknown"):
+            continue
+        if when > wake + DEPART_MAX:
+            break
+        if when > wake and previous == home and state != home:
+            return when
+        previous = state
+    return None
 
 
 def learned_prep(now: datetime, episodes: Sequence[Episode], p: Params) -> timedelta:
     """How long before a shift this person actually gets up.
 
-    Taken from sleeps that ended shortly before a shift, weighted toward recent ones and
-    pulled toward the configured value while there are few of them.
+    Taken only from get-up-and-go mornings (see is_get_ready_morning), weighted toward
+    recent ones and pulled toward the configured value while there are few of them.
     """
     total, weight_sum = 0.0, 0.0
     for e in episodes:
-        if e.next_start is None:
-            continue
-        gap = e.next_start - e.wake
-        if timedelta() < gap <= PREP_MAX:
+        if is_get_ready_morning(e):
+            gap = e.next_start - e.wake
             w = 0.5 ** (_hours(now - e.onset) / 24 / p.half_life_days)
             total += w * _hours(gap)
             weight_sum += w

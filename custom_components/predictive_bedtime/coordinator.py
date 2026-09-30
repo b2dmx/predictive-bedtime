@@ -64,10 +64,12 @@ from .model import (
     Params,
     Prediction,
     Shift,
-    SleepDetector,
-    combine,
+    DEPART_MAX,
     MODE_WORK,
+    SleepDetector,
     classify,
+    combine,
+    first_departure,
     make_episode,
     predict,
 )
@@ -77,7 +79,7 @@ _LOGGER = logging.getLogger(__name__)
 # A prediction counts for a sleep that started within this long of it.
 MATCH_WINDOW = timedelta(hours=6)
 # How far back missing predictions are recovered from the recorder.
-RECOVER_WINDOW = timedelta(days=14)
+RECOVER_WINDOW = timedelta(days=30)
 
 type BedtimeConfigEntry = ConfigEntry[BedtimeCoordinator]
 
@@ -262,9 +264,9 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
             entry.async_create_background_task(
                 self.hass, self._async_run_backfill(), f"{DOMAIN} backfill {entry.title}"
             )
-        elif any(e.predicted is None for e in self._recent_nights()):
+        elif any(e.predicted is None or e.left_home is None for e in self._recent_nights()):
             entry.async_create_background_task(
-                self.hass, self._async_recover_predictions(), f"{DOMAIN} recover {entry.title}"
+                self.hass, self._async_recover_history(), f"{DOMAIN} recover {entry.title}"
             )
 
     async def _async_run_backfill(self) -> None:
@@ -317,6 +319,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
             state = self.hass.states.get(entity_id)
             return state.state if state else None
 
+        self._note_departure()
         on, sure, known = self._reading(state_of)
         # Signals dropping off WiFi say nothing about whether anyone is asleep.
         if not known:
@@ -360,6 +363,19 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
                 self.hass, self._async_evaluate, max(due, now) + timedelta(seconds=1)
             )
 
+    def _note_departure(self) -> None:
+        """Record when they left home after the last sleep, if it was soon after waking."""
+        if not self.episodes or self.episodes[-1].left_home is not None:
+            return
+        last = self.episodes[-1]
+        person = self.hass.states.get(self.person)
+        if person is None or person.state in (STATE_HOME, "unavailable", "unknown"):
+            return
+        left = person.last_changed
+        if last.wake < left <= last.wake + DEPART_MAX:
+            self.episodes[-1] = replace(last, left_home=left)
+            self._save()
+
     def _initial_since(self, on: bool) -> datetime:
         """Best guess at when the current reading began, from the signals' own history."""
         changed = [
@@ -393,47 +409,62 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         cutoff = dt_util.utcnow() - RECOVER_WINDOW
         return [e for e in self.episodes if e.onset >= cutoff]
 
-    async def _async_recover_predictions(self) -> None:
-        """Fill in what was predicted for recent nights from the Next bedtime history."""
+    async def _async_recover_history(self) -> None:
+        """Fill in recent nights from the recorder: what was predicted, and when they left."""
         from homeassistant.components.recorder import get_instance  # noqa: PLC0415
         from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
 
-        entity_id = er.async_get(self.hass).async_get_entity_id(
+        recent = self._recent_nights()
+        if not recent:
+            return
+        start = min(e.onset for e in recent) - timedelta(days=1)
+        prediction_entity = er.async_get(self.hass).async_get_entity_id(
             "sensor", DOMAIN, f"{self.config_entry.entry_id}_predicted_bedtime"
         )
-        missing = [e for e in self._recent_nights() if e.predicted is None]
-        if entity_id is None or not missing:
-            return
-        start = min(e.onset for e in missing) - timedelta(days=1)
+        recorder = get_instance(self.hass)
         try:
-            states = await get_instance(self.hass).async_add_executor_job(
-                self._read_entity_history, entity_id, start, dt_util.utcnow()
+            predictions = (
+                await recorder.async_add_executor_job(
+                    self._read_entity_history, prediction_entity, start, dt_util.utcnow()
+                )
+                if prediction_entity
+                else []
+            )
+            presence = await recorder.async_add_executor_job(
+                self._read_entity_history, self.person, start, dt_util.utcnow()
             )
         except Exception:  # noqa: BLE001 - best effort
-            _LOGGER.debug("Could not read prediction history", exc_info=True)
+            _LOGGER.debug("Could not read history to recover nights", exc_info=True)
             return
 
-        history = sorted(
+        predicted_history = sorted(
             (s.last_changed, v)
-            for s in states
+            for s in predictions
             if (v := dt_util.parse_datetime(s.state)) is not None
         )
-        recovered = {}
-        for e in missing:
-            before = [v for changed, v in history if changed <= e.onset]
-            if before and abs(before[-1] - e.onset) <= MATCH_WINDOW:
-                recovered[e.onset] = before[-1]
-        if not recovered:
+        presence_history = sorted((s.last_changed, s.state) for s in presence)
+
+        changed = 0
+        updated: list[Episode] = []
+        for e in self.episodes:
+            new = e
+            if e in recent and e.predicted is None:
+                before = [v for when, v in predicted_history if when <= e.onset]
+                if before and abs(before[-1] - e.onset) <= MATCH_WINDOW:
+                    new = replace(new, predicted=before[-1])
+            if e in recent and e.left_home is None:
+                left = first_departure(e.wake, presence_history)
+                if left is not None:
+                    new = replace(new, left_home=left)
+            changed += new is not e
+            updated.append(new)
+        if not changed:
             return
-        self.episodes = [
-            replace(e, predicted=recovered[e.onset]) if e.onset in recovered else e
-            for e in self.episodes
-        ]
-        _LOGGER.info(
-            "%s: recovered predictions for %d nights", self.config_entry.title, len(recovered)
-        )
+        self.episodes = updated
+        _LOGGER.info("%s: filled in %d recent nights from history", self.config_entry.title, changed)
         self._save()
         self.async_update_listeners()
+        await self.async_request_refresh()
 
     def _read_entity_history(self, entity_id: str, start: datetime, end: datetime) -> list[State]:
         from homeassistant.components.recorder import history  # noqa: PLC0415

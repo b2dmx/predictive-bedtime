@@ -75,10 +75,8 @@ def test_learns_later_habit_before_early_shifts():
     now = shifts[-1].end + timedelta(hours=2)
     upcoming = shifts + [model.Shift(shifts[-1].start + timedelta(days=1), shifts[-1].end + timedelta(days=1))]
     pred = model.predict(now, now, upcoming, episodes, P, TZ)
-    # Up 1 h before each shift, so the learned get-ready time moves the schedule-only
-    # bedtime from 21:15 (75 min setting) toward 21:30 (60 min).
-    assert 60 <= pred.prep.total_seconds() / 60 < 65
-    assert "21:15" < local(pred.schedule_bedtime)[3:] <= "21:30"
+    # No departures recorded, so get-ready stays at the 75 min setting: 21:15.
+    assert local(pred.schedule_bedtime).endswith("21:15")
     assert pred.bedtime.astimezone(TZ).strftime("%H:%M") in ("22:20", "22:30", "22:40")
     assert pred.confidence > 0.9
 
@@ -252,18 +250,40 @@ def test_appointments_limit_wake_up_but_are_not_shift_ends():
 
 
 def test_get_ready_time_is_learned_from_real_mornings():
-    # Up 45 minutes before a 07:00 shift, ten times.
+    # Up 45 minutes before a 07:00 shift and out the door 20 minutes later, ten times.
     nights = []
     for d in range(10):
         shift = datetime(2026, 6, 2, 7, tzinfo=TZ).astimezone(model.UTC) + timedelta(days=d)
-        onset = shift - timedelta(hours=9)
-        nights.append(model.Episode(onset, shift - timedelta(minutes=45), None, shift))
+        wake = shift - timedelta(minutes=45)
+        left = wake + timedelta(minutes=20)
+        nights.append(model.Episode(wake - timedelta(hours=8), wake, None, shift, left_home=left))
     now = nights[-1].wake + timedelta(hours=10)
     minutes = model.learned_prep(now, nights, P).total_seconds() / 60
     assert 45 <= minutes < 52, minutes  # 75 min setting, pulled almost all the way to 45
-    # Natural wake-ups hours before a late shift don't count as getting ready.
-    late = model.Episode(onset, onset + timedelta(hours=8), None, onset + timedelta(hours=13))
-    assert model.learned_prep(now, [late], P) == P.prep
+
+
+def test_lazy_mornings_do_not_count_as_getting_ready():
+    shift = at(20, 14)
+    # Up at 8 for a 2 pm shift, leaving at 1:15 pm: not a get-ready morning.
+    lazy = model.Episode(at(19, 23), at(20, 8), None, shift, left_home=at(20, 13, 15))
+    # Up 2 h before, but never recorded leaving soon after: not counted either.
+    stayed = model.Episode(at(19, 23), at(20, 12), None, shift)
+    assert not model.is_get_ready_morning(lazy)
+    assert not model.is_get_ready_morning(stayed)
+    assert model.learned_prep(at(21, 0), [lazy, stayed], P) == P.prep
+
+
+def test_first_departure_after_waking():
+    wake = at(20, 6)
+    changes = [
+        (at(19, 18), "home"),
+        (at(20, 6, 10), "unavailable"),
+        (at(20, 6, 40), "not_home"),
+        (at(20, 7), "work"),
+    ]
+    assert local(model.first_departure(wake, changes)) == "20 06:40"
+    # Leaving 3 hours later is not a get-up-and-go morning.
+    assert model.first_departure(wake, [(at(19, 18), "home"), (at(20, 9), "not_home")]) is None
 
 
 if __name__ == "__main__":
