@@ -18,7 +18,7 @@
           "wind_down_minutes": "Wind-down before bedtime"
         },
         "data_description": {
-          "prep_minutes": "Getting ready plus commute.",
+          "prep_minutes": "Getting ready plus commute. A starting value: it is learned from how long before a shift {name} actually gets up.",
           "wind_down_minutes": "How early the Wind-down sensor turns on, for dimming lights or cooling the bedroom."
         }
       },
@@ -150,7 +150,8 @@
           "target_sleep_hours": "Used until enough nights have been learned; after that, actual behaviour wins.",
           "learning_window_days": "Nights older than this are discarded. Within the window, recent nights count more.",
           "asleep_states": "Only matters for trackers that report text states.",
-          "use_sleep_debt": "Also compare how much was slept in the previous 48 hours."
+          "use_sleep_debt": "Also compare how much was slept in the previous 48 hours.",
+          "prep_minutes": "Getting ready plus commute. A starting value: it is learned from how long before a shift this person actually gets up."
         }
       }
     },

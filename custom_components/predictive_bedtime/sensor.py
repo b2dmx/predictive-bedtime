@@ -34,7 +34,9 @@ def _bedtime_attrs(c: BedtimeCoordinator) -> dict[str, Any]:
         "schedule_bedtime": _iso(p.schedule_bedtime),
         "previous_shift_end": _iso(p.prev_end),
         "next_shift_start": _iso(p.next_start),
-        "wake_by": _iso(p.next_start - c.params.prep) if p.next_start else None,
+        "wake_by": _iso(p.next_start - p.prep) if p.next_start else None,
+        # Learned from how long before shifts this person actually gets up.
+        "get_ready_minutes": round(p.prep.total_seconds() / 60),
         "nights_learned": len(c.episodes),
         # Held from wind-down until the expected wake-up, rather than drifting.
         "locked": c.committed is not None,

@@ -11,6 +11,7 @@ It is built for irregular and rotating work schedules. It reads each person's wo
 - **Thinks in shifts, not weekdays.** Each night is described by hours until the next shift, hours since the last one ended, and time of day. A new rotation, a swapped shift or a schedule that changes every few months is handled by comparing it with similar situations, including ones never seen exactly before.
 - **Starts sensible, then adapts.** Until enough nights are learned, predictions follow the schedule: a full night before early shifts, an unwinding buffer after late ones, and your usual bedtime on free days. As nights accumulate, actual behaviour takes over. **Prediction confidence** shows how far along it is.
 - **Learns how long you sleep, too.** Next wake comes from how long similar nights lasted, capped by the next shift.
+- **Learns how long you need to get ready.** How long before a shift someone actually gets up is learned too; the setup value is only a starting point.
 - **Optional sleep debt.** When enabled, how much was slept in the previous 48 hours is also compared, since short nights tend to lead to earlier bedtimes.
 - **You stay in control.** A Learning switch and "pause learning when" conditions (a home-mode selector, a guest or vacation toggle) keep untypical nights out. A Forget last sleep button, an action, and an optional phone notification with a Forget button handle the rest.
 - **Bounded memory.** Nights older than the learning window (365 days by default) are discarded. Within the window, recent nights count more.
@@ -115,7 +116,7 @@ Setup asks for the person, their calendars and how to read each, their sleep sig
 |---|---|
 | Usual bedtime with no shift nearby | 23:30 |
 | Sleep needed before a shift | 7.5 h |
-| Wake-up to shift start (getting ready + commute) | 75 min |
+| Wake-up to shift start (getting ready + commute; learned) | 75 min |
 | Wind-down before bedtime | 60 min |
 | Shortest time from shift end to bed | 90 min |
 | Time in bed before it counts as a sleep attempt | 20 min |

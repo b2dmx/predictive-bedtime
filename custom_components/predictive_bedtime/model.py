@@ -15,7 +15,7 @@ never-seen-before schedules still produce a sensible answer. The best-scoring ti
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, time, timedelta, tzinfo
 import math
 import re
@@ -164,6 +164,7 @@ class Prediction:
     prev_end: datetime | None
     next_start: datetime | None
     nights_used: int
+    prep: timedelta = timedelta(minutes=75)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -174,6 +175,7 @@ class Prediction:
             "prev_end": _iso(self.prev_end),
             "next_start": _iso(self.next_start),
             "nights_used": self.nights_used,
+            "prep_minutes": self.prep.total_seconds() / 60,
         }
 
     @classmethod
@@ -186,6 +188,7 @@ class Prediction:
             prev_end=_parse(data.get("prev_end")),
             next_start=_parse(data.get("next_start")),
             nights_used=data.get("nights_used", 0),
+            prep=timedelta(minutes=data.get("prep_minutes", 75)),
         )
 
 
@@ -322,6 +325,29 @@ def schedule_bedtime(start: datetime, shifts: Sequence[Shift], p: Params, tz: tz
     return anchor
 
 
+# Getting up more than this long before a shift is a natural wake-up, not getting ready.
+PREP_MAX = timedelta(hours=2, minutes=30)
+
+
+def learned_prep(now: datetime, episodes: Sequence[Episode], p: Params) -> timedelta:
+    """How long before a shift this person actually gets up.
+
+    Taken from sleeps that ended shortly before a shift, weighted toward recent ones and
+    pulled toward the configured value while there are few of them.
+    """
+    total, weight_sum = 0.0, 0.0
+    for e in episodes:
+        if e.next_start is None:
+            continue
+        gap = e.next_start - e.wake
+        if timedelta() < gap <= PREP_MAX:
+            w = 0.5 ** (_hours(now - e.onset) / 24 / p.half_life_days)
+            total += w * _hours(gap)
+            weight_sum += w
+    hours = (total + PRIOR_WEIGHT * _hours(p.prep)) / (weight_sum + PRIOR_WEIGHT)
+    return timedelta(hours=hours)
+
+
 def predict(
     now: datetime,
     start: datetime,
@@ -331,6 +357,7 @@ def predict(
     tz: tzinfo,
 ) -> Prediction:
     """Predict the next sleep onset at or after start, and when it will end."""
+    p = replace(p, prep=learned_prep(now, episodes, p))
     rule = schedule_bedtime(start, shifts, p, tz)
 
     # (until next shift, since last shift, clock, debt, hours slept, weight)
@@ -398,6 +425,7 @@ def predict(
         prev_end=prev.end if prev else None,
         next_start=nxt.start if nxt else None,
         nights_used=len(learned),
+        prep=p.prep,
     )
 
 

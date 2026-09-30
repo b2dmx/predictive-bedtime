@@ -75,7 +75,10 @@ def test_learns_later_habit_before_early_shifts():
     now = shifts[-1].end + timedelta(hours=2)
     upcoming = shifts + [model.Shift(shifts[-1].start + timedelta(days=1), shifts[-1].end + timedelta(days=1))]
     pred = model.predict(now, now, upcoming, episodes, P, TZ)
-    assert local(pred.schedule_bedtime).endswith("21:15")
+    # Up 1 h before each shift, so the learned get-ready time moves the schedule-only
+    # bedtime from 21:15 (75 min setting) toward 21:30 (60 min).
+    assert 60 <= pred.prep.total_seconds() / 60 < 65
+    assert "21:15" < local(pred.schedule_bedtime)[3:] <= "21:30"
     assert pred.bedtime.astimezone(TZ).strftime("%H:%M") in ("22:20", "22:30", "22:40")
     assert pred.confidence > 0.9
 
@@ -246,6 +249,21 @@ def test_appointments_limit_wake_up_but_are_not_shift_ends():
     assert local(model.schedule_bedtime(at(27, 20), [appointment], P, TZ)) == "27 23:30"
     early = model.Shift(at(28, 6), at(28, 7), model.KIND_APPOINTMENT)
     assert local(model.schedule_bedtime(at(27, 20), [early], P, TZ)) == "27 21:15"
+
+
+def test_get_ready_time_is_learned_from_real_mornings():
+    # Up 45 minutes before a 07:00 shift, ten times.
+    nights = []
+    for d in range(10):
+        shift = datetime(2026, 6, 2, 7, tzinfo=TZ).astimezone(model.UTC) + timedelta(days=d)
+        onset = shift - timedelta(hours=9)
+        nights.append(model.Episode(onset, shift - timedelta(minutes=45), None, shift))
+    now = nights[-1].wake + timedelta(hours=10)
+    minutes = model.learned_prep(now, nights, P).total_seconds() / 60
+    assert 45 <= minutes < 52, minutes  # 75 min setting, pulled almost all the way to 45
+    # Natural wake-ups hours before a late shift don't count as getting ready.
+    late = model.Episode(onset, onset + timedelta(hours=8), None, onset + timedelta(hours=13))
+    assert model.learned_prep(now, [late], P) == P.prep
 
 
 if __name__ == "__main__":
