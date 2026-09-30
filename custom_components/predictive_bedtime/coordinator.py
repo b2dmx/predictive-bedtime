@@ -7,6 +7,7 @@ day after the calendars were last read.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, time, timedelta
 import logging
 from typing import Any
@@ -72,6 +73,11 @@ from .model import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# A prediction counts for a sleep that started within this long of it.
+MATCH_WINDOW = timedelta(hours=6)
+# How far back missing predictions are recovered from the recorder.
+RECOVER_WINDOW = timedelta(days=14)
+
 type BedtimeConfigEntry = ConfigEntry[BedtimeCoordinator]
 
 
@@ -119,6 +125,9 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         # The Learning switch; pause conditions can also stop learning.
         self.learning_enabled = True
         self._night_paused = False
+        # The bedtime that was predicted for the sleep in progress, captured when it starts:
+        # by wake-up the prediction has already moved on to the next night.
+        self._night_predicted: datetime | None = None
         # Combined sleep reading and when it last flipped.
         self._on: bool | None = None
         self._since: datetime | None = None
@@ -224,6 +233,8 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
             self.committed = Prediction.from_dict(stored["committed"])
         self.learning_enabled = stored.get("learning_enabled", True)
         self._night_paused = stored.get("night_paused", False)
+        if stored.get("night_predicted"):
+            self._night_predicted = dt_util.parse_datetime(stored["night_predicted"])
 
     @callback
     def async_start_tracking(self) -> None:
@@ -249,6 +260,10 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
             self._needs_backfill = False
             entry.async_create_background_task(
                 self.hass, self._async_run_backfill(), f"{DOMAIN} backfill {entry.title}"
+            )
+        elif any(e.predicted is None for e in self._recent_nights()):
+            entry.async_create_background_task(
+                self.hass, self._async_recover_predictions(), f"{DOMAIN} recover {entry.title}"
             )
 
     async def _async_run_backfill(self) -> None:
@@ -276,6 +291,9 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
             "committed": self.committed.as_dict() if self.committed else None,
             "learning_enabled": self.learning_enabled,
             "night_paused": self._night_paused,
+            "night_predicted": (
+                self._night_predicted.isoformat() if self._night_predicted else None
+            ),
         }
 
     def _forget_old_nights(self) -> None:
@@ -314,6 +332,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         finished = self.detector.step(now, on, since, sure, p)
         if self.detector.asleep and not was_asleep:
             self._night_paused = self.paused_by is not None
+            self._night_predicted = self._prediction_for(self.detector.onset)
         if finished:
             if self._night_paused or self.paused_by is not None:
                 _LOGGER.debug("%s: learning paused, night not recorded", self.config_entry.title)
@@ -323,6 +342,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
                 self._record(*finished)
                 self._async_notify_recorded(self.episodes[-1])
             self._night_paused = False
+            self._night_predicted = None
         if finished or was_asleep != self.detector.asleep:
             self._save()
             self.async_update_listeners()
@@ -350,12 +370,15 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
             return dt_util.utcnow()
         return min(changed) if on else max(changed)
 
-    def _record(self, onset: datetime, wake: datetime, source: str) -> None:
-        # What was predicted for this night, if the prediction was about this night.
+    def _prediction_for(self, onset: datetime | None) -> datetime | None:
+        """The current prediction, if it was about the sleep that began at onset."""
         guess = self.committed or self.data
-        predicted = (
-            guess.bedtime if guess and abs(guess.bedtime - onset) <= timedelta(hours=6) else None
-        )
+        if guess is None or onset is None:
+            return None
+        return guess.bedtime if abs(guess.bedtime - onset) <= MATCH_WINDOW else None
+
+    def _record(self, onset: datetime, wake: datetime, source: str) -> None:
+        predicted = self._night_predicted or self._prediction_for(onset)
         self.episodes = [
             *self.episodes,
             make_episode(onset, wake, self.shifts, source, predicted),
@@ -364,6 +387,59 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         self.last_wake = wake
         self.committed = None
         _LOGGER.debug("%s: recorded sleep %s -> %s", self.config_entry.title, onset, wake)
+
+    def _recent_nights(self) -> list[Episode]:
+        cutoff = dt_util.utcnow() - RECOVER_WINDOW
+        return [e for e in self.episodes if e.onset >= cutoff]
+
+    async def _async_recover_predictions(self) -> None:
+        """Fill in what was predicted for recent nights from the Next bedtime history."""
+        from homeassistant.components.recorder import get_instance  # noqa: PLC0415
+        from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+
+        entity_id = er.async_get(self.hass).async_get_entity_id(
+            "sensor", DOMAIN, f"{self.config_entry.entry_id}_predicted_bedtime"
+        )
+        missing = [e for e in self._recent_nights() if e.predicted is None]
+        if entity_id is None or not missing:
+            return
+        start = min(e.onset for e in missing) - timedelta(days=1)
+        try:
+            states = await get_instance(self.hass).async_add_executor_job(
+                self._read_entity_history, entity_id, start, dt_util.utcnow()
+            )
+        except Exception:  # noqa: BLE001 - best effort
+            _LOGGER.debug("Could not read prediction history", exc_info=True)
+            return
+
+        history = sorted(
+            (s.last_changed, v)
+            for s in states
+            if (v := dt_util.parse_datetime(s.state)) is not None
+        )
+        recovered = {}
+        for e in missing:
+            before = [v for changed, v in history if changed <= e.onset]
+            if before and abs(before[-1] - e.onset) <= MATCH_WINDOW:
+                recovered[e.onset] = before[-1]
+        if not recovered:
+            return
+        self.episodes = [
+            replace(e, predicted=recovered[e.onset]) if e.onset in recovered else e
+            for e in self.episodes
+        ]
+        _LOGGER.info(
+            "%s: recovered predictions for %d nights", self.config_entry.title, len(recovered)
+        )
+        self._save()
+        self.async_update_listeners()
+
+    def _read_entity_history(self, entity_id: str, start: datetime, end: datetime) -> list[State]:
+        from homeassistant.components.recorder import history  # noqa: PLC0415
+
+        return history.state_changes_during_period(
+            self.hass, start, end, entity_id=entity_id, no_attributes=True
+        ).get(entity_id, [])
 
     # --- learning control ----------------------------------------------
 
