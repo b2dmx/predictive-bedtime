@@ -262,6 +262,24 @@ def test_get_ready_time_is_learned_from_real_mornings():
     assert 45 <= minutes < 52, minutes  # 75 min setting, pulled almost all the way to 45
 
 
+def test_get_ready_time_depends_on_the_start_time():
+    # Quick for 07:00 starts (50 min), slower for 09:30 starts (85 min).
+    nights = []
+    for d, (hour, minute, lead) in enumerate([(7, 0, 50), (9, 30, 85)] * 6):
+        start = datetime(2026, 6, 2 + d, hour, minute, tzinfo=TZ).astimezone(model.UTC)
+        wake = start - timedelta(minutes=lead)
+        nights.append(
+            model.Episode(wake - timedelta(hours=8), wake, None, start, left_home=wake + timedelta(minutes=20))
+        )
+    now = nights[-1].wake + timedelta(hours=10)
+    seven = datetime(2026, 6, 30, 7, tzinfo=TZ).astimezone(model.UTC)
+    half_nine = datetime(2026, 6, 30, 9, 30, tzinfo=TZ).astimezone(model.UTC)
+    early = model.learned_prep(now, nights, P, TZ, seven).total_seconds() / 60
+    late = model.learned_prep(now, nights, P, TZ, half_nine).total_seconds() / 60
+    assert 50 <= early < 58, early
+    assert 78 < late <= 85, late
+
+
 def test_lazy_mornings_do_not_count_as_getting_ready():
     shift = at(20, 14)
     # Up at 8 for a 2 pm shift, leaving at 1:15 pm: not a get-ready morning.

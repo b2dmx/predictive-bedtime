@@ -366,17 +366,37 @@ def first_departure(
     return None
 
 
-def learned_prep(now: datetime, episodes: Sequence[Episode], p: Params) -> timedelta:
+# How far apart two start times can be (hours) and still say much about each other.
+SIGMA_START = 1.0
+
+
+def learned_prep(
+    now: datetime,
+    episodes: Sequence[Episode],
+    p: Params,
+    tz: tzinfo | None = None,
+    for_start: datetime | None = None,
+) -> timedelta:
     """How long before a shift this person actually gets up.
 
     Taken only from get-up-and-go mornings (see is_get_ready_morning), weighted toward
-    recent ones and pulled toward the configured value while there are few of them.
+    recent ones and, when for_start is given, toward mornings with a similar start time
+    (people are often quicker for a 7:00 start than a 9:30 one). Pulled toward the
+    configured value while there are few of them.
     """
+    target = None
+    if for_start is not None and tz is not None:
+        local = for_start.astimezone(tz)
+        target = local.hour + local.minute / 60
     total, weight_sum = 0.0, 0.0
     for e in episodes:
         if is_get_ready_morning(e):
             gap = e.next_start - e.wake
             w = 0.5 ** (_hours(now - e.onset) / 24 / p.half_life_days)
+            if target is not None:
+                start = e.next_start.astimezone(tz)
+                gap_h = _clock_gap(start.hour + start.minute / 60, target)
+                w *= math.exp(-0.5 * (gap_h / SIGMA_START) ** 2)
             total += w * _hours(gap)
             weight_sum += w
     hours = (total + PRIOR_WEIGHT * _hours(p.prep)) / (weight_sum + PRIOR_WEIGHT)
@@ -392,7 +412,12 @@ def predict(
     tz: tzinfo,
 ) -> Prediction:
     """Predict the next sleep onset at or after start, and when it will end."""
-    p = replace(p, prep=learned_prep(now, episodes, p))
+    # Get-ready time for the next thing to be up for, learned from similar start times.
+    _, upcoming = neighbours(start, shifts)
+    p = replace(
+        p,
+        prep=learned_prep(now, episodes, p, tz, upcoming.start if upcoming else None),
+    )
     rule = schedule_bedtime(start, shifts, p, tz)
 
     # (until next shift, since last shift, clock, debt, hours slept, weight)
