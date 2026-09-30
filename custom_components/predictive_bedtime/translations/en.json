@@ -2,15 +2,10 @@
   "config": {
     "step": {
       "sources": {
-        "title": "Work schedule",
-        "description": "Pick the calendars that hold {name}'s shifts.",
+        "title": "Calendars",
+        "description": "Pick every calendar that can have something {name} needs to be up for: a work calendar, a school or family calendar, a personal one. The next steps ask how to read each.",
         "data": {
-          "calendars": "Work calendars",
-          "calendar_content": "What's on these calendars?"
-        },
-        "data_description": {
-          "calendars": "Timed events are treated as shifts. All-day events are ignored. Shift changes and swaps are picked up automatically.",
-          "calendar_content": "Choose \"other events too\" for a shared or personal calendar; the next step asks how to recognise shifts."
+          "calendars": "Calendars"
         }
       },
       "habits": {
@@ -39,16 +34,6 @@
           "in_bed_signals": "On while {name} is in bed: a bed pressure sensor for their side, an mmWave presence sensor aimed at the bed, or similar. 20 minutes settled counts as going to sleep; 3 hours or more counts as a night.",
           "asleep_signals": "Measured sleep, such as Sleep as Android, Withings, Fitbit, or Apple Health sleep data (e.g. via Health Auto Export). Trusted straight away. Not Sleep Focus or bedtime schedules: those follow preset times, not actual sleep.",
           "asleep_states": "Only matters for trackers that report text states. Any of these states counts as asleep."
-        }
-      },
-      "keywords": {
-        "title": "Recognising shifts",
-        "description": "Only events whose title contains one of these words will count as {name}'s shifts.",
-        "data": {
-          "shift_keywords": "Shift words"
-        },
-        "data_description": {
-          "shift_keywords": "Whole words, ignoring case: \"work\" matches \"Work (Sam)\" and \"Sam work\" but not \"Workout\". Type your own and press Enter to add it."
         }
       },
       "learning": {
@@ -85,6 +70,20 @@
       "household": {
         "title": "Household sensors",
         "description": "Adds whole-home sensors across everyone set up: whether everyone home is expected asleep, whether anyone is winding down, and the earliest and latest predicted bedtimes. Useful for locks, heating and common-area lights, especially without a home-mode system of your own."
+      },
+      "calendar": {
+        "title": "Reading {calendar}",
+        "description": "Tell Predictive Sleep which events on {calendar} mean {name} needs to be up. All-day events (birthdays, holidays) are always ignored.",
+        "data": {
+          "mode": "What's on this calendar?",
+          "words": "Events that count mention",
+          "require_name": "Only events that mention {name}"
+        },
+        "data_description": {
+          "mode": "Work shifts shape the whole sleep pattern. On a mixed calendar only events with the words below count, and those that are not work are treated as appointments: they set how early {name} must be up, nothing more.",
+          "words": "Whole words, ignoring case: \"doctor\" matches \"Doctor (Sam)\" and \"Sam doctor\", not \"Doctors' Day party\". Type your own and press Enter. Ignored for work calendars.",
+          "require_name": "For calendars shared with others, e.g. \"{name} dentist\" counts but \"Alex dentist\" does not. Home Assistant can't see who created an event, so the name in the title or description stands in for it."
+        }
       }
     },
     "error": {
@@ -100,10 +99,36 @@
   "options": {
     "step": {
       "init": {
-        "title": "Bedtime settings",
+        "title": "Predictive Sleep settings",
+        "menu_options": {
+          "calendars": "Calendars",
+          "settings": "Sleep signals, learning and habits"
+        }
+      },
+      "calendars": {
+        "title": "Calendars",
+        "description": "Pick every calendar that can have something {name} needs to be up for. The next steps ask how to read each.",
         "data": {
-          "calendars": "Work calendars",
-          "shift_keywords": "Only events containing",
+          "calendars": "Calendars"
+        }
+      },
+      "calendar": {
+        "title": "Reading {calendar}",
+        "description": "Tell Predictive Sleep which events on {calendar} mean {name} needs to be up. All-day events (birthdays, holidays) are always ignored.",
+        "data": {
+          "mode": "What's on this calendar?",
+          "words": "Events that count mention",
+          "require_name": "Only events that mention {name}"
+        },
+        "data_description": {
+          "mode": "Work shifts shape the whole sleep pattern. On a mixed calendar only events with the words below count, and those that are not work are treated as appointments: they set how early {name} must be up, nothing more.",
+          "words": "Whole words, ignoring case: \"doctor\" matches \"Doctor (Sam)\" and \"Sam doctor\", not \"Doctors' Day party\". Type your own and press Enter. Ignored for work calendars.",
+          "require_name": "For calendars shared with others, e.g. \"{name} dentist\" counts but \"Alex dentist\" does not. Home Assistant can't see who created an event, so the name in the title or description stands in for it."
+        }
+      },
+      "settings": {
+        "title": "Sleep signals, learning and habits",
+        "data": {
           "in_bed_signals": "In-bed signals",
           "asleep_signals": "Sleep trackers",
           "asleep_states": "States that mean asleep",
@@ -125,13 +150,14 @@
           "target_sleep_hours": "Used until enough nights have been learned; after that, actual behaviour wins.",
           "learning_window_days": "Nights older than this are discarded. Within the window, recent nights count more.",
           "asleep_states": "Only matters for trackers that report text states.",
-          "shift_keywords": "Leave empty to treat every timed event as a shift.",
           "use_sleep_debt": "Also compare how much was slept in the previous 48 hours."
         }
       }
     },
     "error": {
-      "no_signals": "Pick at least one in-bed signal or sleep tracker."
+      "no_calendars": "Pick at least one calendar.",
+      "no_signals": "Pick at least one in-bed signal or sleep tracker.",
+      "no_keywords": "Add at least one word."
     }
   },
   "entity": {
@@ -190,10 +216,10 @@
     }
   },
   "selector": {
-    "calendar_content": {
+    "calendar_mode": {
       "options": {
-        "only_shifts": "Only work shifts",
-        "mixed": "Work shifts and other events"
+        "work": "Only work shifts",
+        "mixed": "Work and other events"
       }
     }
   },

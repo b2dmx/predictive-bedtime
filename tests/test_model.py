@@ -213,6 +213,41 @@ def test_accuracy_averages_recent_predicted_nights():
     assert model.accuracy([]) is None
 
 
+MIXED = {"mode": "mixed", "words": list(model.DEFAULT_WAKE_WORDS), "require_name": False}
+
+
+def test_work_calendar_counts_every_event_as_work():
+    assert model.classify("Anything", None, {"mode": "work"}, "Sam") == model.KIND_WORK
+
+
+def test_mixed_calendar_keeps_wake_up_events_only():
+    assert model.classify("Dentist", None, MIXED, "Sam") == model.KIND_APPOINTMENT
+    assert model.classify("Sam work", None, MIXED, "Sam") == model.KIND_WORK
+    assert model.classify("Mom's birthday dinner", None, MIXED, "Sam") is None
+    # The word can be in the description too.
+    assert model.classify("Checkup", "doctor at 9", MIXED, "Sam") == model.KIND_APPOINTMENT
+
+
+def test_shared_calendar_can_require_the_persons_name():
+    rule = {**MIXED, "require_name": True}
+    assert model.classify("Sam dentist", None, rule, "Sam") == model.KIND_APPOINTMENT
+    assert model.classify("Alex dentist", None, rule, "Sam") is None
+    assert model.classify("Dentist", "for Sam", rule, "Sam") == model.KIND_APPOINTMENT
+
+
+def test_appointments_limit_wake_up_but_are_not_shift_ends():
+    appointment = model.Shift(at(28, 9), at(28, 10), model.KIND_APPOINTMENT)
+    prev, nxt = model.neighbours(at(28, 12), [appointment])
+    assert prev is None  # not a shift that ended
+    prev, nxt = model.neighbours(at(27, 22), [appointment])
+    assert nxt == appointment  # but it is the next thing to be up for
+    # A 09:00 appointment pulls a free-day 23:30 bedtime earlier only if needed: 09:00 - 75 min
+    # - 7.5 h = 00:15, so 23:30 stands.
+    assert local(model.schedule_bedtime(at(27, 20), [appointment], P, TZ)) == "27 23:30"
+    early = model.Shift(at(28, 6), at(28, 7), model.KIND_APPOINTMENT)
+    assert local(model.schedule_bedtime(at(27, 20), [early], P, TZ)) == "27 21:15"
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

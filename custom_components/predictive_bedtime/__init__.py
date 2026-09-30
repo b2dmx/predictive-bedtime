@@ -14,6 +14,9 @@ from .const import (
     CONF_ASLEEP,
     CONF_ASLEEP_STATES,
     CONF_BED_SENSOR,
+    CONF_CALENDAR_RULES,
+    CONF_CALENDARS,
+    CONF_KEYWORDS,
     CONF_IN_BED,
     DOMAIN,
     SIGNAL_UPDATED,
@@ -21,7 +24,7 @@ from .const import (
 )
 from .coordinator import BedtimeConfigEntry, BedtimeCoordinator
 from .household import is_household
-from .model import DEFAULT_ASLEEP_VALUES
+from .model import DEFAULT_ASLEEP_VALUES, MODE_MIXED, MODE_WORK
 
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.SENSOR, Platform.SWITCH]
 HOUSEHOLD_PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR]
@@ -86,6 +89,19 @@ async def async_migrate_entry(hass: HomeAssistant, entry: BedtimeConfigEntry) ->
         if title.endswith(" Predictive Bedtime"):
             title = title.removesuffix(" Predictive Bedtime") + f" {TITLE_SUFFIX}"
         hass.config_entries.async_update_entry(entry, title=title, version=5)
+    if entry.version == 5:
+        # Each calendar gets its own rule instead of one keyword list for all of them.
+        options = dict(entry.options)
+        words = options.pop(CONF_KEYWORDS, None) or []
+        options[CONF_CALENDAR_RULES] = {
+            calendar: (
+                {"mode": MODE_MIXED, "words": words, "require_name": False}
+                if words
+                else {"mode": MODE_WORK}
+            )
+            for calendar in options.get(CONF_CALENDARS, [])
+        }
+        hass.config_entries.async_update_entry(entry, options=options, version=6)
     return True
 
 

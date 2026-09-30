@@ -35,7 +35,7 @@ from .const import (
     CONF_CALENDARS,
     CONF_FREE_BEDTIME,
     CONF_IN_BED,
-    CONF_KEYWORDS,
+    CONF_CALENDAR_RULES,
     CONF_MIN_SLEEP,
     CONF_NOTIFY,
     CONF_PAUSE_ENTITIES,
@@ -66,7 +66,8 @@ from .model import (
     Shift,
     SleepDetector,
     combine,
-    is_shift,
+    MODE_WORK,
+    classify,
     make_episode,
     predict,
 )
@@ -202,8 +203,8 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         return list(self._conf(CONF_CALENDARS))
 
     @property
-    def keywords(self) -> list[str]:
-        return list(self._conf(CONF_KEYWORDS) or [])
+    def calendar_rules(self) -> dict[str, dict[str, Any]]:
+        return dict(self._conf(CONF_CALENDAR_RULES) or {})
 
     @property
     def params(self) -> Params:
@@ -224,8 +225,8 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         self.episodes = [Episode.from_dict(e) for e in stored.get("episodes", [])]
         self._forget_old_nights()
         self.shifts = [
-            Shift(dt_util.parse_datetime(s), dt_util.parse_datetime(e))
-            for s, e in stored.get("shifts", [])
+            Shift(dt_util.parse_datetime(row[0]), dt_util.parse_datetime(row[1]), *row[2:3])
+            for row in stored.get("shifts", [])
         ]
         self.detector.restore(stored.get("detector", {}))
         self.last_wake = dt_util.parse_datetime(stored["last_wake"]) if stored.get("last_wake") else None
@@ -285,7 +286,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
     def _data_to_save(self) -> dict[str, Any]:
         return {
             "episodes": [e.as_dict() for e in self.episodes],
-            "shifts": [[s.start.isoformat(), s.end.isoformat()] for s in self.shifts],
+            "shifts": [[s.start.isoformat(), s.end.isoformat(), s.kind] for s in self.shifts],
             "detector": self.detector.as_dict(),
             "last_wake": self.last_wake.isoformat() if self.last_wake else None,
             "committed": self.committed.as_dict() if self.committed else None,
@@ -525,17 +526,22 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
             return_response=True,
         )
         fresh: set[Shift] = set()
-        for calendar in (response or {}).values():
+        rules = self.calendar_rules
+        for calendar_id, calendar in (response or {}).items():
+            rule = rules.get(calendar_id, {"mode": MODE_WORK})
             for event in calendar.get("events", []):
                 # All-day entries (holidays, notes) are not shifts.
                 if "T" not in str(event.get("start")):
                     continue
-                if not is_shift(event.get("summary"), self.keywords):
+                kind = classify(
+                    event.get("summary"), event.get("description"), rule, self.first_name
+                )
+                if kind is None:
                     continue
                 s = dt_util.parse_datetime(event["start"])
                 e = dt_util.parse_datetime(event["end"])
                 if s and e and e > s:
-                    fresh.add(Shift(dt_util.as_utc(s), dt_util.as_utc(e)))
+                    fresh.add(Shift(dt_util.as_utc(s), dt_util.as_utc(e), kind))
         # The calendar is authoritative inside the window it was asked about, so edited
         # and cancelled shifts disappear here. Older shifts are kept to describe past nights.
         keep = [s for s in self.shifts if s.end <= start or s.start >= end]

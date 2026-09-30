@@ -76,7 +76,12 @@ The [`dashboards`](dashboards) folder has the same card three ways: [built-in ca
 
 ## Requirements
 
-- One or more **calendars** holding the person's shifts. A dedicated work calendar is easiest: every timed event counts as a shift. A shared or personal calendar works too: during setup, choose "Work shifts and other events" and give the words shift events use (e.g. `work`). Matching is whole-word and ignores case, so `work` matches "Work (Sam)" but not "Workout". All-day events are always ignored.
+- One or more **calendars**. Each is read its own way, chosen during setup:
+  - **Only work shifts:** every timed event is a shift (a dedicated work calendar).
+  - **Work and other events:** only events whose title or description mentions a wake-up word count: work, shift, school, class, appointment, doctor, dentist, therapy, meeting, interview, flight, exam and so on (editable). Birthdays, holidays and anything else are ignored. Work events shape the sleep pattern; the rest are appointments that only set how early the person must be up.
+  - **Only events that mention the person:** for calendars shared with others, e.g. "Sam dentist" counts for Sam but not for Alex. Home Assistant can't see who created an event, so the name stands in for it.
+
+  Matching is whole-word and ignores case, so `work` matches "Work (Sam)" but not "Workout". All-day events are always ignored.
 - At least one **sleep signal** per person, and a **person** entity:
 
 | Signal | Examples | Treated as |
@@ -104,7 +109,7 @@ Copy `custom_components/predictive_bedtime` into your `config/custom_components`
 
 ## Settings
 
-Setup asks for the person, their calendars (and, for shared calendars, which words mark a shift), their sleep signals and a few starting habits. Everything can be changed later under **Configure**:
+Setup asks for the person, their calendars and how to read each, their sleep signals, learning preferences and a few starting habits. Everything can be changed later under **Configure**, which offers **Calendars** and **Sleep signals, learning and habits**. Everything can be changed later under **Configure**:
 
 | Setting | Default |
 |---|---|

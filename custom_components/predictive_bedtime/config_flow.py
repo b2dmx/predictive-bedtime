@@ -1,8 +1,8 @@
 """Config and options flows.
 
-Setup is four short steps: who, their work calendars, how to tell when they sleep, and a
-few starting habits. The habits
-are only a starting point; once nights have been learned, actual behaviour takes over.
+Setup: who, which calendars (and how to read each one), how to tell when they sleep,
+learning and feedback, and a few starting habits. The habits are only a starting point;
+once nights have been learned, actual behaviour takes over.
 """
 from __future__ import annotations
 
@@ -11,8 +11,7 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
-from homeassistant.core import callback
-from homeassistant.loader import async_get_integration
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.selector import (
     BooleanSelector,
     EntitySelector,
@@ -24,14 +23,15 @@ from homeassistant.helpers.selector import (
     SelectSelectorConfig,
     TimeSelector,
 )
+from homeassistant.loader import async_get_integration
 
 from .const import (
     CONF_ASLEEP,
     CONF_ASLEEP_STATES,
+    CONF_CALENDAR_RULES,
     CONF_CALENDARS,
     CONF_FREE_BEDTIME,
     CONF_IN_BED,
-    CONF_KEYWORDS,
     CONF_MIN_SLEEP,
     CONF_NOTIFY,
     CONF_PAUSE_ENTITIES,
@@ -52,7 +52,7 @@ from .const import (
     KIND_HOUSEHOLD,
     TITLE_SUFFIX,
 )
-from .model import DEFAULT_ASLEEP_VALUES
+from .model import DEFAULT_ASLEEP_VALUES, DEFAULT_WAKE_WORDS, MODE_MIXED, MODE_WORK, mentions
 
 PERSON = EntitySelector(EntitySelectorConfig(domain="person"))
 CALENDARS = EntitySelector(EntitySelectorConfig(domain="calendar", multiple=True))
@@ -61,6 +61,26 @@ SIGNALS = EntitySelector(
 )
 ASLEEP_STATES = SelectSelector(
     SelectSelectorConfig(options=list(DEFAULT_ASLEEP_VALUES), multiple=True, custom_value=True)
+)
+PAUSE_ENTITIES = EntitySelector(EntitySelectorConfig(multiple=True))
+PAUSE_STATES = SelectSelector(
+    SelectSelectorConfig(options=DEFAULT_PAUSE_STATES, multiple=True, custom_value=True)
+)
+
+MODE = "mode"
+WORDS = "words"
+REQUIRE_NAME = "require_name"
+
+CALENDAR_RULE_SCHEMA = vol.Schema(
+    {
+        vol.Required(MODE): SelectSelector(
+            SelectSelectorConfig(options=[MODE_WORK, MODE_MIXED], translation_key="calendar_mode")
+        ),
+        vol.Optional(WORDS, default=list(DEFAULT_WAKE_WORDS)): SelectSelector(
+            SelectSelectorConfig(options=list(DEFAULT_WAKE_WORDS), multiple=True, custom_value=True)
+        ),
+        vol.Required(REQUIRE_NAME, default=False): BooleanSelector(),
+    }
 )
 
 
@@ -72,24 +92,7 @@ def _number(low: float, high: float, step: float, unit: str) -> NumberSelector:
     )
 
 
-KEYWORDS = SelectSelector(
-    SelectSelectorConfig(options=["work", "shift"], multiple=True, custom_value=True)
-)
-
-CALENDAR_CONTENT = "calendar_content"
-ONLY_SHIFTS = "only_shifts"
-MIXED = "mixed"
-
-SOURCES_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_CALENDARS): CALENDARS,
-        vol.Required(CALENDAR_CONTENT, default=ONLY_SHIFTS): SelectSelector(
-            SelectSelectorConfig(options=[ONLY_SHIFTS, MIXED], translation_key=CALENDAR_CONTENT)
-        ),
-    }
-)
-
-KEYWORDS_SCHEMA = vol.Schema({vol.Required(CONF_KEYWORDS): KEYWORDS})
+CALENDARS_SCHEMA = vol.Schema({vol.Required(CONF_CALENDARS): CALENDARS})
 
 SIGNALS_SCHEMA = vol.Schema(
     {
@@ -99,9 +102,23 @@ SIGNALS_SCHEMA = vol.Schema(
     }
 )
 
-PAUSE_ENTITIES = EntitySelector(EntitySelectorConfig(multiple=True))
-PAUSE_STATES = SelectSelector(
-    SelectSelectorConfig(options=DEFAULT_PAUSE_STATES, multiple=True, custom_value=True)
+HABITS_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_FREE_BEDTIME): TimeSelector(),
+        vol.Required(CONF_TARGET_SLEEP): _number(4, 12, 0.25, "h"),
+        vol.Required(CONF_PREP): _number(0, 240, 5, "min"),
+        vol.Required(CONF_WIND_DOWN): _number(0, 240, 5, "min"),
+    }
+)
+
+TUNING_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_UNWIND): _number(0, 240, 5, "min"),
+        vol.Required(CONF_SETTLE): _number(5, 90, 5, "min"),
+        vol.Required(CONF_WAKE_GAP): _number(5, 120, 5, "min"),
+        vol.Required(CONF_MIN_SLEEP): _number(1, 8, 0.5, "h"),
+        vol.Required(CONF_RETENTION): _number(30, 1095, 1, "d"),
+    }
 )
 
 
@@ -118,32 +135,7 @@ def _learning_schema(notify_services: list[str]) -> vol.Schema:
     )
 
 
-HABITS_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_FREE_BEDTIME): TimeSelector(),
-        vol.Required(CONF_TARGET_SLEEP): _number(4, 12, 0.25, "h"),
-        vol.Required(CONF_PREP): _number(0, 240, 5, "min"),
-        vol.Required(CONF_WIND_DOWN): _number(0, 240, 5, "min"),
-    }
-)
-
-OPTIONS_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_CALENDARS): CALENDARS,
-        vol.Optional(CONF_KEYWORDS, default=[]): KEYWORDS,
-    }
-).extend(SIGNALS_SCHEMA.schema).extend(HABITS_SCHEMA.schema).extend(
-    {
-        vol.Required(CONF_UNWIND): _number(0, 240, 5, "min"),
-        vol.Required(CONF_SETTLE): _number(5, 90, 5, "min"),
-        vol.Required(CONF_WAKE_GAP): _number(5, 120, 5, "min"),
-        vol.Required(CONF_MIN_SLEEP): _number(1, 8, 0.5, "h"),
-        vol.Required(CONF_RETENTION): _number(30, 1095, 1, "d"),
-    }
-)
-
-
-def _notify_services(hass) -> list[str]:
+def _notify_services(hass: HomeAssistant) -> list[str]:
     """Phones and other targets that can show a notification with buttons."""
     return sorted(
         f"notify.{name}"
@@ -158,11 +150,83 @@ def _check_signals(user_input: dict[str, Any]) -> dict[str, str]:
     return {}
 
 
-class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
-    VERSION = 5
+def _calendar_name(hass: HomeAssistant, entity_id: str) -> str:
+    state = hass.states.get(entity_id)
+    return state.name if state and state.name else entity_id
+
+
+def _guess_rule(hass: HomeAssistant, entity_id: str, first_name: str) -> dict[str, Any]:
+    """A work calendar reads as all shifts; anything else as mixed, named events only if shared."""
+    name = _calendar_name(hass, entity_id)
+    if mentions(name, ["work", "shift", "shifts", "job"]):
+        return {MODE: MODE_WORK, WORDS: list(DEFAULT_WAKE_WORDS), REQUIRE_NAME: False}
+    return {
+        MODE: MODE_MIXED,
+        WORDS: list(DEFAULT_WAKE_WORDS),
+        REQUIRE_NAME: not mentions(name, [first_name]),
+    }
+
+
+def _clean_rule(user_input: dict[str, Any]) -> dict[str, Any]:
+    if user_input[MODE] == MODE_WORK:
+        return {MODE: MODE_WORK}
+    words = [w.strip() for w in user_input.get(WORDS, []) if w.strip()]
+    return {MODE: MODE_MIXED, WORDS: words, REQUIRE_NAME: bool(user_input.get(REQUIRE_NAME))}
+
+
+class _CalendarRulesMixin:
+    """Walks through the chosen calendars one at a time, asking how to read each."""
+
+    hass: HomeAssistant
+    _queue: list[str]
+    _rules: dict[str, dict[str, Any]]
+    _existing_rules: dict[str, dict[str, Any]]
+
+    def _first_name(self) -> str:
+        raise NotImplementedError
+
+    async def _async_rules_done(self) -> ConfigFlowResult:
+        raise NotImplementedError
+
+    async def async_step_calendar(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        current = self._queue[0]
+        if user_input is not None:
+            rule = _clean_rule(user_input)
+            if rule[MODE] == MODE_MIXED and not rule[WORDS]:
+                errors[WORDS] = "no_keywords"
+            else:
+                self._rules[current] = rule
+                self._queue.pop(0)
+                if self._queue:
+                    return await self.async_step_calendar()
+                return await self._async_rules_done()
+
+        suggested = {
+            **_guess_rule(self.hass, current, self._first_name()),
+            **self._existing_rules.get(current, {}),
+        }
+        return self.async_show_form(  # type: ignore[attr-defined]
+            step_id="calendar",
+            data_schema=self.add_suggested_values_to_schema(  # type: ignore[attr-defined]
+                CALENDAR_RULE_SCHEMA, user_input or suggested
+            ),
+            errors=errors,
+            description_placeholders={
+                "calendar": _calendar_name(self.hass, current),
+                "name": self._first_name(),
+            },
+        )
+
+
+class PredictiveBedtimeConfigFlow(_CalendarRulesMixin, ConfigFlow, domain=DOMAIN):
+    VERSION = 6
 
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
+        self._queue = []
+        self._rules = {}
+        self._existing_rules = {}
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         integration = await async_get_integration(self.hass, DOMAIN)
@@ -199,38 +263,21 @@ class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors[CONF_CALENDARS] = "no_calendars"
             else:
                 self._data[CONF_CALENDARS] = user_input[CONF_CALENDARS]
-                if user_input[CALENDAR_CONTENT] == MIXED:
-                    return await self.async_step_keywords()
-                self._data[CONF_KEYWORDS] = []
-                return await self.async_step_signals()
+                self._queue = list(user_input[CONF_CALENDARS])
+                return await self.async_step_calendar()
 
         return self.async_show_form(
             step_id="sources",
             data_schema=self.add_suggested_values_to_schema(
-                SOURCES_SCHEMA, user_input or {CONF_CALENDARS: self._suggest_calendars()}
+                CALENDARS_SCHEMA, user_input or {CONF_CALENDARS: self._suggest_calendars()}
             ),
             errors=errors,
             description_placeholders={"name": self._first_name()},
         )
 
-    async def async_step_keywords(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            words = [w.strip() for w in user_input[CONF_KEYWORDS] if w.strip()]
-            if not words:
-                errors[CONF_KEYWORDS] = "no_keywords"
-            else:
-                self._data[CONF_KEYWORDS] = words
-                return await self.async_step_signals()
-
-        return self.async_show_form(
-            step_id="keywords",
-            data_schema=self.add_suggested_values_to_schema(
-                KEYWORDS_SCHEMA, user_input or {CONF_KEYWORDS: ["work"]}
-            ),
-            errors=errors,
-            description_placeholders={"name": self._first_name()},
-        )
+    async def _async_rules_done(self) -> ConfigFlowResult:
+        self._data[CONF_CALENDAR_RULES] = self._rules
+        return await self.async_step_signals()
 
     async def async_step_signals(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
@@ -269,7 +316,7 @@ class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
                 options={
                     **DEFAULT_OPTIONS,
                     CONF_CALENDARS: self._data[CONF_CALENDARS],
-                    CONF_KEYWORDS: self._data.get(CONF_KEYWORDS, []),
+                    CONF_CALENDAR_RULES: self._data[CONF_CALENDAR_RULES],
                     CONF_IN_BED: self._data.get(CONF_IN_BED, []),
                     CONF_ASLEEP: self._data.get(CONF_ASLEEP, []),
                     CONF_ASLEEP_STATES: self._data[CONF_ASLEEP_STATES],
@@ -315,17 +362,71 @@ class PredictiveBedtimeConfigFlow(ConfigFlow, domain=DOMAIN):
         return PredictiveBedtimeOptionsFlow()
 
 
-class PredictiveBedtimeOptionsFlow(OptionsFlow):
+class PredictiveBedtimeOptionsFlow(_CalendarRulesMixin, OptionsFlow):
+    def __init__(self) -> None:
+        self._queue = []
+        self._rules = {}
+        self._existing_rules = {}
+        self._calendars: list[str] = []
+
+    def _first_name(self) -> str:
+        return self.config_entry.title.split()[0] if self.config_entry.title else "this person"
+
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="init", menu_options=["calendars", "settings"])
+
+    async def async_step_calendars(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not user_input[CONF_CALENDARS]:
+                errors[CONF_CALENDARS] = "no_calendars"
+            else:
+                self._calendars = list(user_input[CONF_CALENDARS])
+                self._queue = list(self._calendars)
+                self._existing_rules = dict(self.config_entry.options.get(CONF_CALENDAR_RULES, {}))
+                return await self.async_step_calendar()
+
+        return self.async_show_form(
+            step_id="calendars",
+            data_schema=self.add_suggested_values_to_schema(
+                CALENDARS_SCHEMA,
+                user_input or {CONF_CALENDARS: self.config_entry.options.get(CONF_CALENDARS, [])},
+            ),
+            errors=errors,
+            description_placeholders={"name": self._first_name()},
+        )
+
+    async def _async_rules_done(self) -> ConfigFlowResult:
+        return self.async_create_entry(
+            data={
+                **self.config_entry.options,
+                CONF_CALENDARS: self._calendars,
+                CONF_CALENDAR_RULES: self._rules,
+            }
+        )
+
+    async def async_step_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
             errors = _check_signals(user_input)
             if not errors:
-                return self.async_create_entry(data=user_input)
+                options = {**self.config_entry.options, **user_input}
+                if not user_input.get(CONF_NOTIFY):
+                    options.pop(CONF_NOTIFY, None)
+                return self.async_create_entry(data=options)
+        schema = (
+            SIGNALS_SCHEMA.extend(_learning_schema(_notify_services(self.hass)).schema)
+            .extend(HABITS_SCHEMA.schema)
+            .extend(TUNING_SCHEMA.schema)
+        )
         return self.async_show_form(
-            step_id="init",
+            step_id="settings",
             data_schema=self.add_suggested_values_to_schema(
-                OPTIONS_SCHEMA.extend(_learning_schema(_notify_services(self.hass)).schema),
+                schema,
                 user_input
                 or {
                     **DEFAULT_OPTIONS,

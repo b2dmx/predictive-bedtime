@@ -13,6 +13,8 @@ CONF_PERSON = "person"
 CONF_CALENDARS = "calendars"
 # Only events whose title contains one of these words count as shifts; empty = all.
 CONF_KEYWORDS = "shift_keywords"
+# Per calendar: {"mode": "work" | "mixed", "words": [...], "require_name": bool}.
+CONF_CALENDAR_RULES = "calendar_rules"
 # Replaced by the two signal lists in config version 2; kept for migration.
 CONF_BED_SENSOR = "bed_sensor"
 CONF_IN_BED = "in_bed_signals"

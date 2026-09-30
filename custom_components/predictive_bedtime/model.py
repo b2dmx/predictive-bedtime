@@ -38,6 +38,33 @@ LOOKAHEAD = timedelta(hours=24)
 MIN_WEIGHT = 0.02
 MAX_SLEEP = timedelta(hours=16)
 
+# What calendar events are.
+KIND_WORK = "work"
+KIND_APPOINTMENT = "appointment"
+# How a calendar is read: every event is a shift, or only events with wake-up words.
+MODE_WORK = "work"
+MODE_MIXED = "mixed"
+# Words that mark an event as work rather than an appointment.
+WORK_WORDS = frozenset({"work", "shift", "on call", "on-call", "overtime"})
+# Things that usually need someone up and out; birthdays and holidays are not among them.
+DEFAULT_WAKE_WORDS = (
+    "work",
+    "shift",
+    "school",
+    "class",
+    "appointment",
+    "appt",
+    "doctor",
+    "dentist",
+    "therapy",
+    "clinic",
+    "meeting",
+    "interview",
+    "flight",
+    "exam",
+    "court",
+)
+
 # Where a recorded night came from.
 SOURCE_TRACKER = "tracker"
 SOURCE_IN_BED = "in_bed"
@@ -63,8 +90,15 @@ _UNUSABLE = frozenset({"unavailable", "unknown", ""})
 
 @dataclass(frozen=True)
 class Shift:
+    """Anything on the calendar that needs the person up and out.
+
+    Work shifts shape the whole sleep pattern (coming home, unwinding). Appointments only
+    set how early the person needs to be up.
+    """
+
     start: datetime
     end: datetime
+    kind: str = "work"
 
 
 @dataclass(frozen=True)
@@ -164,22 +198,49 @@ def _clock_gap(a: float, b: float) -> float:
     return min(d, 24 - d)
 
 
+def mentions(text: str | None, words: Iterable[str]) -> list[str]:
+    """Words found in text: whole-word, ignoring case ("work" matches "Bailey work", not "Workout")."""
+    return [
+        w
+        for w in (k.strip() for k in words if k)
+        if w and re.search(rf"(?<!\w){re.escape(w)}(?!\w)", text or "", re.IGNORECASE)
+    ]
+
+
 def is_shift(summary: str | None, keywords: Iterable[str]) -> bool:
-    """Whole-word, case-insensitive: "work" matches "Bailey work" but not "Workout"."""
-    words = [k.strip() for k in keywords if k and k.strip()]
-    if not words:
-        return True
-    return any(
-        re.search(rf"(?<!\w){re.escape(w)}(?!\w)", summary or "", re.IGNORECASE) for w in words
-    )
+    """With no keywords every event counts; otherwise one must be mentioned."""
+    words = [k for k in keywords if k and k.strip()]
+    return not words or bool(mentions(summary, words))
+
+
+def classify(
+    summary: str | None,
+    description: str | None,
+    rule: dict[str, Any],
+    name: str,
+) -> str | None:
+    """What an event is for this person under a calendar's rule: work, appointment, or None.
+
+    rule["mode"] is "work" (every timed event is a shift) or "mixed" (only events mentioning
+    one of rule["words"] count, optionally only those that also mention the person's name).
+    """
+    if rule.get("mode", MODE_WORK) == MODE_WORK:
+        return KIND_WORK
+    text = f"{summary or ''}\n{description or ''}"
+    if rule.get("require_name") and not mentions(text, [name]):
+        return None
+    found = mentions(text, rule.get("words") or DEFAULT_WAKE_WORDS)
+    if not found:
+        return None
+    return KIND_WORK if any(w.lower() in WORK_WORDS for w in found) else KIND_APPOINTMENT
 
 
 def neighbours(t: datetime, shifts: Iterable[Shift]) -> tuple[Shift | None, Shift | None]:
-    """Return the last shift that ended by t and the first shift starting after t."""
+    """The last work shift that ended by t, and the first commitment of any kind after t."""
     prev: Shift | None = None
     nxt: Shift | None = None
     for s in shifts:
-        if s.end <= t and (prev is None or s.end > prev.end):
+        if s.kind == KIND_WORK and s.end <= t and (prev is None or s.end > prev.end):
             prev = s
         if s.start > t and (nxt is None or s.start < nxt.start):
             nxt = s
@@ -249,8 +310,9 @@ def schedule_bedtime(start: datetime, shifts: Sequence[Shift], p: Params, tz: tz
     anchor = anchor.astimezone(UTC)
 
     for s in sorted(shifts, key=lambda s: s.start):
-        if s.start <= anchor < s.end + p.unwind:
-            anchor = s.end + p.unwind
+        after = s.end + (p.unwind if s.kind == KIND_WORK else timedelta())
+        if s.start <= anchor < after:
+            anchor = after
 
     prev, nxt = neighbours(anchor, shifts)
     if nxt:
