@@ -155,6 +155,10 @@ def _calendar_name(hass: HomeAssistant, entity_id: str) -> str:
     return state.name if state and state.name else entity_id
 
 
+# Calendar names that suggest several people's events share one calendar.
+SHARED_CALENDAR_WORDS = ("family", "home", "house", "household", "shared", "kids", "us")
+
+
 def _guess_rule(hass: HomeAssistant, entity_id: str, first_name: str) -> dict[str, Any]:
     """A work calendar reads as all shifts; anything else as mixed, named events only if shared."""
     name = _calendar_name(hass, entity_id)
@@ -163,7 +167,8 @@ def _guess_rule(hass: HomeAssistant, entity_id: str, first_name: str) -> dict[st
     return {
         MODE: MODE_MIXED,
         WORDS: list(DEFAULT_WAKE_WORDS),
-        REQUIRE_NAME: not mentions(name, [first_name]),
+        REQUIRE_NAME: bool(mentions(name, SHARED_CALENDAR_WORDS))
+        and not mentions(name, [first_name]),
     }
 
 

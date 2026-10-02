@@ -56,7 +56,7 @@ STORAGE_VERSION = 1
 # Recent nights count more: a night this fraction of the learning window old counts half.
 HALF_LIFE_FRACTION = 1 / 3
 # Shifts are only needed to describe nights as they are recorded.
-SHIFT_RETENTION = timedelta(days=21)
+SHIFT_RETENTION = timedelta(days=40)
 # The recorder usually keeps 10 days; this is a one-off head start, not the learning window.
 BACKFILL_DAYS = 30
 # Calendars are re-read at least this often, and immediately whenever a calendar entity changes.

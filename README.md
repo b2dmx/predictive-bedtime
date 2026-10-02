@@ -31,7 +31,7 @@ It is built for irregular and rotating work schedules. It reads each person's wo
 | Prediction error | Average minutes between predicted and actual bedtime over the last 14 sleeps. Lower is better. Diagnostic. |
 | Learning (switch) | Turn off to stop learning by hand. Attributes show whether learning is active right now and what paused it. |
 | Forget last sleep (button) | Removes the most recent sleep from learning. |
-| Expected asleep | On during the predicted sleep window, or once they have settled in bed. |
+| Expected asleep | On while they are home and either in the predicted sleep window or going to sleep: settled in bed within 2 hours of the predicted bedtime, asleep per a tracker, or in bed long enough to be a real sleep. Reading in bed in the afternoon doesn't count. |
 | Wind-down | On for a set time before the predicted bedtime. |
 
 ### Household sensors (optional)

@@ -240,5 +240,11 @@
     "entry_not_loaded": {
       "message": "That Predictive Sleep entry is not loaded."
     }
+  },
+  "issues": {
+    "missing_calendar": {
+      "title": "{name}: calendar not found",
+      "description": "Predictive Sleep can't find {calendars}. It may have been removed or renamed, so {name}'s predictions are using the last shifts it read. Choose the calendars again under Settings → Devices & services → Predictive Sleep → Configure → Calendars."
+    }
   }
 }

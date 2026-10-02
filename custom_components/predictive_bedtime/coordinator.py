@@ -17,6 +17,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID, STATE_HOME
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, State, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
     async_track_point_in_utc_time,
@@ -71,6 +72,7 @@ from .model import (
     combine,
     first_departure,
     make_episode,
+    neighbours,
     predict,
 )
 
@@ -80,6 +82,13 @@ _LOGGER = logging.getLogger(__name__)
 MATCH_WINDOW = timedelta(hours=6)
 # How far back missing predictions are recovered from the recorder.
 RECOVER_WINDOW = timedelta(days=30)
+# Time in bed counts as going to sleep only this close to the predicted bedtime (or once
+# it has lasted a full sleep): reading in bed in the afternoon is not bedtime.
+ATTEMPT_WINDOW = timedelta(hours=2)
+# A calendar that has not appeared for this long gets a repair notice.
+MISSING_CALENDAR_GRACE = timedelta(minutes=15)
+# Bumped when stored nights need re-describing against the calendar.
+HISTORY_VERSION = 2
 
 type BedtimeConfigEntry = ConfigEntry[BedtimeCoordinator]
 
@@ -134,6 +143,13 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         # Combined sleep reading and when it last flipped.
         self._on: bool | None = None
         self._since: datetime | None = None
+        # Recent nights before this were already checked against the recorder.
+        self._recovered_until: datetime | None = None
+        self._history_version = HISTORY_VERSION
+        # Use cached shifts for the first refresh; read the calendars right after setup.
+        self._defer_fetch = False
+        self._missing_since: datetime | None = None
+        self._shown: tuple[bool, bool] | None = None
 
     # --- configuration -------------------------------------------------
 
@@ -225,6 +241,9 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
             self._needs_backfill = True
             return
         self.episodes = [Episode.from_dict(e) for e in stored.get("episodes", [])]
+        self._history_version = stored.get("history_version", 1)
+        if stored.get("recovered_until"):
+            self._recovered_until = dt_util.parse_datetime(stored["recovered_until"])
         self._forget_old_nights()
         self.shifts = [
             Shift(dt_util.parse_datetime(row[0]), dt_util.parse_datetime(row[1]), *row[2:3])
@@ -238,6 +257,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         self._night_paused = stored.get("night_paused", False)
         if stored.get("night_predicted"):
             self._night_predicted = dt_util.parse_datetime(stored["night_predicted"])
+        self._defer_fetch = bool(self.shifts)
 
     @callback
     def async_start_tracking(self) -> None:
@@ -264,10 +284,19 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
             entry.async_create_background_task(
                 self.hass, self._async_run_backfill(), f"{DOMAIN} backfill {entry.title}"
             )
-        elif any(e.predicted is None or e.left_home is None for e in self._recent_nights()):
-            entry.async_create_background_task(
-                self.hass, self._async_recover_history(), f"{DOMAIN} recover {entry.title}"
-            )
+            return
+        # The first refresh used cached shifts so setup never waits on a slow calendar.
+        self.hass.async_create_task(self.async_request_refresh())
+        entry.async_create_background_task(
+            self.hass, self._async_maintain(), f"{DOMAIN} maintain {entry.title}"
+        )
+
+    async def _async_maintain(self) -> None:
+        """One-off history work after setup, one job at a time so neither undoes the other."""
+        if self._history_version < HISTORY_VERSION and self.episodes:
+            await self._async_redescribe_nights()
+        if any(e.predicted is None or e.left_home is None for e in self._unchecked_nights()):
+            await self._async_recover_history()
 
     async def _async_run_backfill(self) -> None:
         await self._async_backfill()
@@ -297,6 +326,10 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
             "night_predicted": (
                 self._night_predicted.isoformat() if self._night_predicted else None
             ),
+            "recovered_until": (
+                self._recovered_until.isoformat() if self._recovered_until else None
+            ),
+            "history_version": self._history_version,
         }
 
     def _forget_old_nights(self) -> None:
@@ -347,10 +380,16 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
                 self._async_notify_recorded(self.episodes[-1])
             self._night_paused = False
             self._night_predicted = None
+        shown = (self.sleep_attempt, self.is_home)
         if finished or was_asleep != self.detector.asleep:
             self._save()
             self.async_update_listeners()
             self.hass.async_create_task(self.async_request_refresh())
+        elif shown != self._shown:
+            self.async_update_listeners()
+            if shown[0] != (self._shown or (False,))[0]:
+                self.hass.async_create_task(self.async_request_refresh())
+        self._shown = shown
 
         # Check again the moment a pending stretch would cross its threshold.
         due: datetime | None = None
@@ -358,6 +397,12 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
             due = since + p.settle
         elif self.detector.asleep and not on:
             due = since + p.wake_gap
+        elif self.detector.asleep and not self.sleep_attempt and self.detector.onset:
+            # In bed early: it becomes a sleep attempt when bedtime nears or it lasts.
+            moments = [self.detector.onset + p.min_sleep]
+            if (guess := self.committed or self.data) is not None:
+                moments.append(guess.bedtime - ATTEMPT_WINDOW)
+            due = min(moments)
         if due:
             self._unsub_detector = async_track_point_in_utc_time(
                 self.hass, self._async_evaluate, max(due, now) + timedelta(seconds=1)
@@ -409,12 +454,17 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         cutoff = dt_util.utcnow() - RECOVER_WINDOW
         return [e for e in self.episodes if e.onset >= cutoff]
 
+    def _unchecked_nights(self) -> list[Episode]:
+        """Recent nights the recorder has not been checked for yet."""
+        after = self._recovered_until
+        return [e for e in self._recent_nights() if after is None or e.onset > after]
+
     async def _async_recover_history(self) -> None:
         """Fill in recent nights from the recorder: what was predicted, and when they left."""
         from homeassistant.components.recorder import get_instance  # noqa: PLC0415
         from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
 
-        recent = self._recent_nights()
+        recent = self._unchecked_nights()
         if not recent:
             return
         start = min(e.onset for e in recent) - timedelta(days=1)
@@ -444,6 +494,8 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         )
         presence_history = sorted((s.last_changed, s.state) for s in presence)
 
+        # Nights from here on are captured live, so this never needs repeating for them.
+        self._recovered_until = dt_util.utcnow()
         changed = 0
         updated: list[Episode] = []
         for e in self.episodes:
@@ -459,11 +511,42 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
             changed += new is not e
             updated.append(new)
         if not changed:
+            self._save()
             return
         self.episodes = updated
         _LOGGER.info("%s: filled in %d recent nights from history", self.config_entry.title, changed)
         self._save()
         self.async_update_listeners()
+        await self.async_request_refresh()
+
+    async def _async_redescribe_nights(self) -> None:
+        """Re-read the calendars for stored nights and describe them against real shifts.
+
+        Early versions kept fewer days of shifts than they backfilled nights, so the oldest
+        nights were stored as if no shift was nearby.
+        """
+        now = dt_util.utcnow()
+        oldest = min(e.onset for e in self.episodes)
+        start = max(oldest - timedelta(days=2), now - SHIFT_RETENTION)
+        try:
+            await self._async_fetch_shifts(start, now + timedelta(days=3))
+        except HomeAssistantError as err:
+            _LOGGER.debug("Could not re-read calendars to describe nights: %s", err)
+            return
+        described = []
+        for e in self.episodes:
+            if e.onset >= start:
+                prev, nxt = neighbours(e.onset, self.shifts)
+                e = replace(
+                    e,
+                    prev_end=prev.end if prev else None,
+                    next_start=nxt.start if nxt else None,
+                )
+            described.append(e)
+        self.episodes = described
+        self._history_version = HISTORY_VERSION
+        self._last_fetch = now
+        self._save()
         await self.async_request_refresh()
 
     def _read_entity_history(self, entity_id: str, start: datetime, end: datetime) -> list[State]:
@@ -585,11 +668,12 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
 
     async def _async_update_data(self) -> Prediction:
         now = dt_util.utcnow()
+        defer, self._defer_fetch = self._defer_fetch, False
         if (
             self._calendars_changed
             or self._last_fetch is None
             or now - self._last_fetch >= CALENDAR_MAX_AGE
-        ) and self._calendars_ready():
+        ) and not defer and self._calendars_ready(now):
             try:
                 await self._async_fetch_shifts(now - timedelta(days=2), now + timedelta(days=3))
                 self._last_fetch = now
@@ -605,13 +689,37 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         self._schedule_next(prediction, now)
         return prediction
 
-    def _calendars_ready(self) -> bool:
+    def _calendars_ready(self, now: datetime) -> bool:
         """At startup calendars can load after this integration.
 
         Their entities appearing fires a state change, which triggers a read, so there is
-        nothing to do until then.
+        nothing to do until then. One still missing after a grace period was probably
+        removed or renamed, and gets a repair notice instead of failing silently.
         """
-        return all(self.hass.states.get(c) is not None for c in self.calendars)
+        missing = [c for c in self.calendars if self.hass.states.get(c) is None]
+        issue_id = f"missing_calendar_{self.config_entry.entry_id}"
+        if not missing:
+            if self._missing_since is not None:
+                ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            self._missing_since = None
+            return True
+        self._missing_since = self._missing_since or now
+        if now - self._missing_since >= MISSING_CALENDAR_GRACE:
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                issue_id,
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="missing_calendar",
+                translation_placeholders={
+                    "name": self.config_entry.title,
+                    "calendars": ", ".join(missing),
+                },
+            )
+        else:
+            self._retry_fetch_at = self._missing_since + MISSING_CALENDAR_GRACE
+        return False
 
     async def _async_predict(self, now: datetime) -> Prediction:
         if self.committed and now < self.committed.wake:
@@ -620,7 +728,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
 
         p = self.params
         start = now
-        if self.detector.asleep and self.detector.onset:
+        if self.sleep_attempt and self.detector.onset:
             start = max(start, self.detector.onset + p.target_sleep + timedelta(hours=2))
         elif self.last_wake:
             start = max(start, self.last_wake + timedelta(hours=2))
@@ -634,7 +742,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
             p,
             dt_util.get_default_time_zone(),
         )
-        if not self.detector.asleep and prediction.bedtime - now <= p.wind_down:
+        if not self.sleep_attempt and prediction.bedtime - now <= p.wind_down:
             self.committed = prediction
             self._save()
         return prediction
@@ -643,6 +751,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         if self._unsub_next:
             self._unsub_next()
         moments = [
+            prediction.bedtime - ATTEMPT_WINDOW,
             prediction.bedtime - self.params.wind_down,
             prediction.bedtime,
             prediction.wake,
@@ -664,9 +773,27 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
     # --- what the entities show ----------------------------------------
 
     @property
+    def sleep_attempt(self) -> bool:
+        """Settled in bed in a way that means going to sleep.
+
+        A tracker reporting sleep always counts. Time in bed counts within ATTEMPT_WINDOW of
+        the predicted bedtime, or once it has lasted a full sleep (a daytime sleep after a
+        night shift, say). Reading in bed in the afternoon does not.
+        """
+        if not self.detector.asleep or self.detector.onset is None:
+            return False
+        now = dt_util.utcnow()
+        if self.detector.tracked or now - self.detector.onset >= self.params.min_sleep:
+            return True
+        guess = self.committed or self.data
+        return guess is not None and now >= guess.bedtime - ATTEMPT_WINDOW
+
+    @property
     def expected_asleep(self) -> bool:
-        """In the predicted sleep window, or already settled in bed."""
-        if self.detector.asleep:
+        """Home, and in the predicted sleep window or already going to sleep."""
+        if not self.is_home:
+            return False
+        if self.sleep_attempt:
             return True
         if self.data is None:
             return False
@@ -674,7 +801,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
 
     @property
     def winding_down(self) -> bool:
-        if self.detector.asleep or self.data is None:
+        if self.sleep_attempt or self.data is None:
             return False
         now = dt_util.utcnow()
         return self.data.bedtime - self.params.wind_down <= now < self.data.bedtime
