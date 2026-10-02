@@ -6,6 +6,7 @@ day after the calendars were last read.
 """
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, time, timedelta
@@ -293,6 +294,11 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
 
     async def _async_maintain(self) -> None:
         """One-off history work after setup, one job at a time so neither undoes the other."""
+        # Calendars can finish loading well after this integration at startup.
+        for _ in range(40):
+            if all(self.hass.states.get(c) is not None for c in self.calendars):
+                break
+            await asyncio.sleep(15)
         if self._history_version < HISTORY_VERSION and self.episodes:
             await self._async_redescribe_nights()
         if any(e.predicted is None or e.left_home is None for e in self._unchecked_nights()):
@@ -531,7 +537,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         try:
             await self._async_fetch_shifts(start, now + timedelta(days=3))
         except HomeAssistantError as err:
-            _LOGGER.debug("Could not re-read calendars to describe nights: %s", err)
+            _LOGGER.warning("Could not re-read calendars to re-check past nights: %s", err)
             return
         described = []
         for e in self.episodes:
@@ -546,6 +552,7 @@ class BedtimeCoordinator(DataUpdateCoordinator[Prediction]):
         self.episodes = described
         self._history_version = HISTORY_VERSION
         self._last_fetch = now
+        _LOGGER.info("%s: re-checked past nights against the calendar", self.config_entry.title)
         self._save()
         await self.async_request_refresh()
 
